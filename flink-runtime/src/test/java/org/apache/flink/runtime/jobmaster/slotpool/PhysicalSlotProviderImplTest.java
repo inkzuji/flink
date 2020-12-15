@@ -23,6 +23,7 @@ import org.apache.flink.runtime.clusterframework.types.SlotProfile;
 import org.apache.flink.runtime.concurrent.ComponentMainThreadExecutor;
 import org.apache.flink.runtime.concurrent.ComponentMainThreadExecutorServiceAdapter;
 import org.apache.flink.runtime.jobmaster.SlotRequestId;
+
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Before;
@@ -76,7 +77,7 @@ public class PhysicalSlotProviderImplTest {
 	}
 
 	@Test
-	public void testBulkSlotAllocationFulfilledWithAvailableSlots() throws InterruptedException, ExecutionException {
+	public void testSlotAllocationFulfilledWithAvailableSlots() throws InterruptedException, ExecutionException {
 		PhysicalSlotRequest request = createPhysicalSlotRequest();
 		addSlotToSlotPool();
 		CompletableFuture<PhysicalSlotRequest.Result> slotFuture = allocateSlot(request);
@@ -85,11 +86,20 @@ public class PhysicalSlotProviderImplTest {
 	}
 
 	@Test
-	public void testBulkSlotAllocationFulfilledWithNewSlots() throws ExecutionException, InterruptedException {
+	public void testSlotAllocationFulfilledWithNewSlots() throws ExecutionException, InterruptedException {
 		final CompletableFuture<PhysicalSlotRequest.Result> slotFuture = allocateSlot(createPhysicalSlotRequest());
 		assertThat(slotFuture.isDone(), is(false));
 		addSlotToSlotPool();
 		slotFuture.get();
+	}
+
+	@Test
+	public void testIndividualBatchSlotRequestTimeoutCheckIsDisabledOnAllocatingNewSlots() throws Exception {
+		TestingSlotPoolImpl slotPool = new SlotPoolBuilder(mainThreadExecutor).build();
+		assertThat(slotPool.isBatchSlotRequestTimeoutCheckEnabled(), is(true));
+
+		new PhysicalSlotProviderImpl(LocationPreferenceSlotSelectionStrategy.createDefault(), slotPool);
+		assertThat(slotPool.isBatchSlotRequestTimeoutCheckEnabled(), is(false));
 	}
 
 	private CompletableFuture<PhysicalSlotRequest.Result> allocateSlot(PhysicalSlotRequest request) {
@@ -108,6 +118,6 @@ public class PhysicalSlotProviderImplTest {
 		return new PhysicalSlotRequest(
 			new SlotRequestId(),
 			SlotProfile.noLocality(ResourceProfile.UNKNOWN),
-			true);
+			false);
 	}
 }

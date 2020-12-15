@@ -24,7 +24,11 @@ under the License.
 
 User-defined functions (UDFs) are extension points to call frequently used logic or custom logic that cannot be expressed otherwise in queries.
 
-User-defined functions can be implemented in a JVM language (such as Java or Scala) or Python. An implementer can use arbitrary third party libraries within a UDF. This page will focus on JVM-based languages.
+User-defined functions can be implemented in a JVM language (such as Java or Scala) or Python.
+An implementer can use arbitrary third party libraries within a UDF.
+This page will focus on JVM-based languages, please refer to the PyFlink documentation
+for details on writing [general]({% link dev/python/table-api-users-guide/udfs/python_udfs.md %}) 
+ and [vectorized]({% link dev/python/table-api-users-guide/udfs/vectorized_python_udfs.md %}) UDFs in Python.
 
 * This will be replaced by the TOC
 {:toc}
@@ -132,7 +136,7 @@ public static class SubstringFunction extends ScalarFunction {
   }
 
   public String eval(String s, Integer begin, Integer end) {
-    return s.substring(a, endInclusive ? end + 1 : end);
+    return s.substring(begin, endInclusive ? end + 1 : end);
   }
 }
 
@@ -547,6 +551,25 @@ public static class LiteralFunction extends ScalarFunction {
 
 </div>
 
+### Determinism
+
+Every user-defined function class can declare whether it produces deterministic results or not by overriding
+the `isDeterministic()` method. If the function is not purely functional (like `random()`, `date()`, or `now()`),
+the method must return `false`. By default, `isDeterministic()` returns `true`.
+
+Furthermore, the `isDeterministic()` method might also influence the runtime behavior. A runtime
+implementation might be called at two different stages:
+
+**During planning (i.e. pre-flight phase)**: If a function is called with constant expressions
+or constant expressions can be derived from the given statement, a function is pre-evaluated
+for constant expression reduction and might not be executed on the cluster anymore. Unless
+`isDeterministic()` is used to disable constant expression reduction in this case. For example,
+the following calls to `ABS` are executed during planning: `SELECT ABS(-1) FROM t` and
+`SELECT ABS(field) FROM t WHERE field = -1`; whereas `SELECT ABS(field) FROM t` is not.
+
+**During runtime (i.e. cluster execution)**: If a function is called with non-constant expressions
+or `isDeterministic()` returns `false`.
+
 ### Runtime Integration
 
 Sometimes it might be necessary for a user-defined function to get global runtime information or do some setup/clean-up work before the actual work. User-defined functions provide `open()` and `close()` methods that can be overridden and provide similar functionality as the methods in `RichFunction` of DataStream API.
@@ -557,11 +580,15 @@ The `open()` method provides a `FunctionContext` that contains information about
 
 The following information can be obtained by calling the corresponding methods of `FunctionContext`:
 
-| Method                                | Description                                            |
-| :------------------------------------ | :----------------------------------------------------- |
-| `getMetricGroup()`                    | Metric group for this parallel subtask.                |
-| `getCachedFile(name)`                 | Local temporary file copy of a distributed cache file. |
-| `getJobParameter(name, defaultValue)` | Global job parameter value associated with given key.  |
+| Method                                   | Description                                                             |
+| :--------------------------------------- | :---------------------------------------------------------------------- |
+| `getMetricGroup()`                       | Metric group for this parallel subtask.                                 |
+| `getCachedFile(name)`                    | Local temporary file copy of a distributed cache file.                  |
+| `getJobParameter(name, defaultValue)`    | Global job parameter value associated with given key.                   |
+| `getExternalResourceInfos(resourceName)` | Returns a set of external resource infos associated with the given key. |
+
+**Note**: Depending on the context in which the function is executed, not all methods from above might be available. For example,
+during constant expression reduction adding a metric is a no-op operation.
 
 The following example snippet shows how to use `FunctionContext` in a scalar function for accessing a global job parameter:
 
@@ -718,7 +745,7 @@ env.sqlQuery("SELECT HashFunction(myField) FROM MyTable")
 
 </div>
 
-If you intend to implement or call functions in Python, please refer to the [Python Scalar Functions]({% link dev/python/user-guide/table/udfs/python_udfs.md %}#scalar-functions) documentation for more details.
+If you intend to implement or call functions in Python, please refer to the [Python Scalar Functions]({% link dev/python/table-api-users-guide/udfs/python_udfs.md %}#scalar-functions) documentation for more details.
 
 {% top %}
 
@@ -876,7 +903,7 @@ env.sqlQuery(
 
 If you intend to implement functions in Scala, do not implement a table function as a Scala `object`. Scala `object`s are singletons and will cause concurrency issues.
 
-If you intend to implement or call functions in Python, please refer to the [Python Table Functions]({% link dev/python/user-guide/table/udfs/python_udfs.md %}#table-functions) documentation for more details.
+If you intend to implement or call functions in Python, please refer to the [Python Table Functions]({% link dev/python/table-api-users-guide/udfs/python_udfs.md %}#table-functions) documentation for more details.
 
 {% top %}
 
@@ -897,7 +924,7 @@ function is called to compute and return the final result.
 The following example illustrates the aggregation process:
 
 <center>
-<img alt="UDAGG mechanism" src="{{ site.baseurl }}/fig/udagg-mechanism.png" width="80%">
+<img alt="UDAGG mechanism" src="{% link /fig/udagg-mechanism.png %}" width="80%">
 </center>
 
 In the example, we assume a table that contains data about beverages. The table consists of three columns (`id`, `name`,
@@ -914,7 +941,7 @@ includes the generic argument `ACC` of the class for determining an accumulator 
 argument `T` for determining an accumulator data type. Input arguments are derived from one or more
 `accumulate(...)` methods. See the [Implementation Guide](#implementation-guide) for more details.
 
-If you intend to implement or call functions in Python, please refer to the [Python Functions]({% link dev/python/user-guide/table/udfs/python_udfs.md %})
+If you intend to implement or call functions in Python, please refer to the [Python Functions]({% link dev/python/table-api-users-guide/udfs/python_udfs.md %})
 documentation for more details.
 
 The following example shows how to define your own aggregate function and call it in a query.
@@ -1087,9 +1114,9 @@ by Flink's checkpointing mechanism and are restored in case of a failure to ensu
 **The following methods are mandatory for each `AggregateFunction`:**
 
 - `createAccumulator()`
-- `accumulate(...)` 
+- `accumulate(...)`
 - `getValue(...)`
- 
+
 Additionally, there are a few methods that can be optionally implemented. While some of these methods
 allow the system more efficient query execution, others are mandatory for certain use cases. For instance,
 the `merge(...)` method is mandatory if the aggregation function should be applied in the context of a
@@ -1099,7 +1126,7 @@ that "connects" them).
 **The following methods of `AggregateFunction` are required depending on the use case:**
 
 - `retract(...)` is required for aggregations on `OVER` windows.
-- `merge(...)` is required for many bounded aggregations and session window aggregations.
+- `merge(...)` is required for many bounded aggregations and session window and hop window aggregations. Besides, this method is also helpful for optimizations. For example, two phase aggregation optimization requires all the `AggregateFunction` support `merge` method.
 
 If the aggregate function can only be applied in an OVER window, this can be declared by returning the
 requirement `FunctionRequirement.OVER_WINDOW_ONLY` in `getRequirements()`.
@@ -1224,6 +1251,8 @@ def merge(accumulator: ACC, iterable: java.lang.Iterable[ACC]): Unit
 
 </div>
 
+If you intend to implement or call functions in Python, please refer to the [Python Aggregate Functions]({% link dev/python/table-api-users-guide/udfs/python_udfs.md %}#aggregate-functions) documentation for more details.
+
 {% top %}
 
 Table Aggregate Functions
@@ -1246,7 +1275,7 @@ method of the function is called to compute and return the final result.
 The following example illustrates the aggregation process:
 
 <center>
-<img alt="UDTAGG mechanism" src="{{ site.baseurl }}/fig/udtagg-mechanism.png" width="80%">
+<img alt="UDTAGG mechanism" src="{% link /fig/udtagg-mechanism.png %}" width="80%">
 </center>
 
 In the example, we assume a table that contains data about beverages. The table consists of three columns (`id`, `name`,
@@ -1264,7 +1293,7 @@ includes the generic argument `ACC` of the class for determining an accumulator 
 argument `T` for determining an accumulator data type. Input arguments are derived from one or more
 `accumulate(...)` methods. See the [Implementation Guide](#implementation-guide) for more details.
 
-If you intend to implement or call functions in Python, please refer to the [Python Functions]({% link dev/python/user-guide/table/udfs/python_udfs.md %})
+If you intend to implement or call functions in Python, please refer to the [Python Functions]({% link dev/python/table-api-users-guide/udfs/python_udfs.md %})
 documentation for more details.
 
 The following example shows how to define your own table aggregate function and call it in a query.
@@ -1464,7 +1493,7 @@ that "connects" them).
 **The following methods of `TableAggregateFunction` are required depending on the use case:**
 
 - `retract(...)` is required for aggregations on `OVER` windows.
-- `merge(...)` is required for many bounded aggregations and session window aggregations.
+- `merge(...)` is required for many bounded aggregations and unbounded session and hop window aggregations.
 - `emitValue(...)` is required for bounded and window aggregations.
 
 **The following methods of `TableAggregateFunction` are used to improve the performance of streaming jobs:**

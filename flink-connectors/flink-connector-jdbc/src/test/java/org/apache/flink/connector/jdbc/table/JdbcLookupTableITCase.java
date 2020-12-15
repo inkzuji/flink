@@ -28,8 +28,7 @@ import org.apache.flink.table.api.TableSchema;
 import org.apache.flink.table.api.bridge.java.StreamTableEnvironment;
 import org.apache.flink.table.types.DataType;
 import org.apache.flink.types.Row;
-
-import org.apache.flink.shaded.guava18.com.google.common.collect.Lists;
+import org.apache.flink.util.CollectionUtil;
 
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -81,7 +80,7 @@ public class JdbcLookupTableITCase extends JdbcLookupTestBase {
 		} else {
 			collected = useDynamicTableFactory(env, tEnv);
 		}
-		List<String> result = Lists.newArrayList(collected).stream()
+		List<String> result = CollectionUtil.iteratorToList(collected).stream()
 			.map(Row::toString)
 			.sorted()
 			.collect(Collectors.toList());
@@ -99,7 +98,7 @@ public class JdbcLookupTableITCase extends JdbcLookupTestBase {
 		assertEquals(expected, result);
 	}
 
-	private Iterator<Row> useLegacyTableFactory(StreamExecutionEnvironment env, StreamTableEnvironment tEnv) throws Exception {
+	private Iterator<Row> useLegacyTableFactory(StreamExecutionEnvironment env, StreamTableEnvironment tEnv) {
 		Table t = tEnv.fromDataStream(env.fromCollection(Arrays.asList(
 			new Tuple2<>(1, "1"),
 			new Tuple2<>(1, "1"),
@@ -132,7 +131,7 @@ public class JdbcLookupTableITCase extends JdbcLookupTestBase {
 		return tEnv.executeSql(sqlQuery).collect();
 	}
 
-	private Iterator<Row> useDynamicTableFactory(StreamExecutionEnvironment env, StreamTableEnvironment tEnv) throws Exception {
+	private Iterator<Row> useDynamicTableFactory(StreamExecutionEnvironment env, StreamTableEnvironment tEnv) {
 		Table t = tEnv.fromDataStream(env.fromCollection(Arrays.asList(
 			new Tuple2<>(1, "1"),
 			new Tuple2<>(1, "1"),
@@ -144,7 +143,7 @@ public class JdbcLookupTableITCase extends JdbcLookupTestBase {
 
 		tEnv.createTemporaryView("T", t);
 
-		String cacheConfig = ", 'lookup.cache.max-rows'='4', 'lookup.cache.ttl'='10000', 'lookup.max-retries'='5'";
+		String cacheConfig = ", 'lookup.cache.max-rows'='4', 'lookup.cache.ttl'='10000'";
 		tEnv.executeSql(
 			String.format("create table lookup (" +
 				"  id1 INT," +
@@ -154,7 +153,8 @@ public class JdbcLookupTableITCase extends JdbcLookupTestBase {
 				") with(" +
 				"  'connector'='jdbc'," +
 				"  'url'='" + DB_URL + "'," +
-				"  'table-name'='" + LOOKUP_TABLE + "'" +
+				"  'table-name'='" + LOOKUP_TABLE + "'," +
+				"  'lookup.max-retries' = '0'" +
 				"  %s)", useCache ? cacheConfig : ""));
 
 		// do not use the first N fields as lookup keys for better coverage

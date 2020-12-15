@@ -38,6 +38,8 @@ import org.apache.flink.runtime.resourcemanager.utils.MockResourceManagerRuntime
 import org.apache.flink.runtime.rpc.TestingRpcService;
 import org.apache.flink.runtime.rpc.TestingRpcServiceResource;
 import org.apache.flink.runtime.taskexecutor.TaskExecutorGateway;
+import org.apache.flink.runtime.taskexecutor.TestingTaskExecutorGateway;
+import org.apache.flink.runtime.taskexecutor.TaskExecutorMemoryConfiguration;
 import org.apache.flink.runtime.taskexecutor.TestingTaskExecutorGatewayBuilder;
 import org.apache.flink.runtime.util.TestingFatalErrorHandler;
 import org.apache.flink.util.TestLogger;
@@ -51,6 +53,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -193,7 +196,7 @@ public class ActiveResourceManagerTest extends TestLogger {
 						is(TaskExecutorProcessUtils.processSpecFromWorkerResourceSpec(flinkConfig, WORKER_RESOURCE_SPEC)));
 
 				// first worker failed before register, verify requesting another worker from driver
-				runInMainThread(() -> getResourceManager().onWorkerTerminated(tmResourceIds.get(0)));
+				runInMainThread(() -> getResourceManager().onWorkerTerminated(tmResourceIds.get(0), "terminate for testing"));
 				TaskExecutorProcessSpec taskExecutorProcessSpec2 =
 						requestWorkerFromDriverFutures.get(1).get(TIMEOUT_SEC, TimeUnit.SECONDS);
 
@@ -247,7 +250,7 @@ public class ActiveResourceManagerTest extends TestLogger {
 				assertThat(registerTaskExecutorFuture1.get(TIMEOUT_SEC, TimeUnit.SECONDS), instanceOf(RegistrationResponse.Success.class));
 
 				// first worker terminated, verify requesting another worker from driver
-				runInMainThread(() -> getResourceManager().onWorkerTerminated(tmResourceIds.get(0)));
+				runInMainThread(() -> getResourceManager().onWorkerTerminated(tmResourceIds.get(0), "terminate for testing"));
 				TaskExecutorProcessSpec taskExecutorProcessSpec2 =
 						requestWorkerFromDriverFutures.get(1).get(TIMEOUT_SEC, TimeUnit.SECONDS);
 
@@ -297,12 +300,39 @@ public class ActiveResourceManagerTest extends TestLogger {
 
 				// worker terminated, verify not requesting new worker
 				runInMainThread(() -> {
-					getResourceManager().onWorkerTerminated(tmResourceId);
+					getResourceManager().onWorkerTerminated(tmResourceId, "terminate for testing");
 					// needs to return something, so that we can use `get()` to make sure the main thread processing
 					// finishes before the assertions
 					return null;
 				}).get(TIMEOUT_SEC, TimeUnit.SECONDS);
 				assertFalse(requestWorkerFromDriverFutures.get(1).isDone());
+			});
+		}};
+	}
+
+	@Test
+	public void testCloseTaskManagerConnectionOnWorkerTerminated() throws Exception {
+		new Context() {{
+			final ResourceID tmResourceId = ResourceID.generate();
+			final CompletableFuture<TaskExecutorProcessSpec> requestWorkerFromDriverFuture = new CompletableFuture<>();
+			final CompletableFuture<Void> disconnectResourceManagerFuture = new CompletableFuture<>();
+
+			final TestingTaskExecutorGateway taskExecutorGateway = new TestingTaskExecutorGatewayBuilder()
+				.setDisconnectResourceManagerConsumer((ignore) -> disconnectResourceManagerFuture.complete(null))
+				.createTestingTaskExecutorGateway();
+
+			driverBuilder.setRequestResourceFunction(taskExecutorProcessSpec -> {
+				requestWorkerFromDriverFuture.complete(taskExecutorProcessSpec);
+				return CompletableFuture.completedFuture(tmResourceId);
+			});
+
+			runTest(() -> {
+				// request a new worker, terminate it after registered
+				runInMainThread(() -> getResourceManager().startNewWorker(WORKER_RESOURCE_SPEC))
+					.thenCompose((ignore) -> registerTaskExecutor(tmResourceId, taskExecutorGateway))
+					.thenRun(() -> runInMainThread(() -> getResourceManager().onWorkerTerminated(tmResourceId, "terminate for testing")));
+				// verify task manager connection is closed
+				disconnectResourceManagerFuture.get(TIMEOUT_SEC, TimeUnit.SECONDS);
 			});
 		}};
 	}
@@ -398,7 +428,8 @@ public class ActiveResourceManagerTest extends TestLogger {
 					rmServices.jobLeaderIdService,
 					new ClusterInformation("localhost", 1234),
 					fatalErrorHandler,
-					UnregisteredMetricGroups.createUnregisteredResourceManagerMetricGroup());
+					UnregisteredMetricGroups.createUnregisteredResourceManagerMetricGroup(),
+					ForkJoinPool.commonPool());
 
 			activeResourceManager.start();
 			rmServices.grantLeadership();
@@ -419,14 +450,21 @@ public class ActiveResourceManagerTest extends TestLogger {
 
 		CompletableFuture<RegistrationResponse> registerTaskExecutor(ResourceID resourceID) {
 			final TaskExecutorGateway taskExecutorGateway = new TestingTaskExecutorGatewayBuilder()
-					.createTestingTaskExecutorGateway();
+				.createTestingTaskExecutorGateway();
+			return registerTaskExecutor(resourceID, taskExecutorGateway);
+		}
+
+		CompletableFuture<RegistrationResponse> registerTaskExecutor(
+				ResourceID resourceID, TaskExecutorGateway taskExecutorGateway) {
 			RPC_SERVICE_RESOURCE.getTestingRpcService().registerGateway(resourceID.toString(), taskExecutorGateway);
 
 			final TaskExecutorRegistration taskExecutorRegistration = new TaskExecutorRegistration(
 					resourceID.toString(),
 					resourceID,
 					1234,
+					23456,
 					new HardwareDescription(1, 2L, 3L, 4L),
+					TaskExecutorMemoryConfiguration.create(flinkConfig),
 					ResourceProfile.ZERO,
 					ResourceProfile.ZERO);
 
