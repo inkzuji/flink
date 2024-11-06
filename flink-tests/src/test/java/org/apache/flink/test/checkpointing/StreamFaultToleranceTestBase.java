@@ -18,12 +18,13 @@
 
 package org.apache.flink.test.checkpointing;
 
-import org.apache.flink.api.common.restartstrategy.RestartStrategies;
+import org.apache.flink.changelog.fs.FsStateChangelogStorageFactory;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.configuration.JobManagerOptions;
 import org.apache.flink.runtime.jobgraph.JobGraph;
 import org.apache.flink.runtime.testutils.MiniClusterResourceConfiguration;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import org.apache.flink.streaming.util.RestartStrategyUtils;
 import org.apache.flink.test.util.MiniClusterWithClientResource;
 import org.apache.flink.test.util.SuccessException;
 import org.apache.flink.util.ExceptionUtils;
@@ -32,11 +33,14 @@ import org.apache.flink.util.TestLogger;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
+import org.junit.ClassRule;
 import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
 
 import java.io.Serializable;
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.Collection;
 
@@ -67,17 +71,25 @@ public abstract class StreamFaultToleranceTestBase extends TestLogger {
 
     private static MiniClusterWithClientResource cluster;
 
+    @ClassRule public static TemporaryFolder tempFolder = new TemporaryFolder();
+
     @Before
     public void setup() throws Exception {
         Configuration configuration = new Configuration();
         switch (failoverStrategy) {
             case RestartPipelinedRegionFailoverStrategy:
-                configuration.setString(JobManagerOptions.EXECUTION_FAILOVER_STRATEGY, "region");
+                configuration.set(JobManagerOptions.EXECUTION_FAILOVER_STRATEGY, "region");
                 break;
             case RestartAllFailoverStrategy:
-                configuration.setString(JobManagerOptions.EXECUTION_FAILOVER_STRATEGY, "full");
+                configuration.set(JobManagerOptions.EXECUTION_FAILOVER_STRATEGY, "full");
         }
 
+        // Configure DFS DSTL for this test as it might produce too much GC pressure if
+        // ChangelogStateBackend is used.
+        // Doing it on cluster level unconditionally as randomization currently happens on the job
+        // level (environment); while this factory can only be set on the cluster level.
+        FsStateChangelogStorageFactory.configure(
+                configuration, tempFolder.newFolder(), Duration.ofMinutes(1), 10);
         cluster =
                 new MiniClusterWithClientResource(
                         new MiniClusterResourceConfiguration.Builder()
@@ -115,7 +127,7 @@ public abstract class StreamFaultToleranceTestBase extends TestLogger {
             StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
             env.setParallelism(PARALLELISM);
             env.enableCheckpointing(500);
-            env.setRestartStrategy(RestartStrategies.fixedDelayRestart(Integer.MAX_VALUE, 0L));
+            RestartStrategyUtils.configureFixedDelayRestartStrategy(env, Integer.MAX_VALUE, 0L);
 
             testProgram(env);
 

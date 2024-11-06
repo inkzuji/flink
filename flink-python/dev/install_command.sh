@@ -16,6 +16,21 @@
 #  See the License for the specific language governing permissions and
 # limitations under the License.
 ################################################################################
+if [[ "$@" =~ 'apache-flink-libraries' ]]; then
+    pushd apache-flink-libraries
+    python setup.py sdist
+    pushd dist
+    python -m pip install *
+    popd
+    popd
+fi
+
+if [[ `uname -s` == "Darwin" && `uname -m` == "arm64" ]]; then
+  echo "Adding MacOS arm64 GRPC pip install fix"
+  export GRPC_PYTHON_BUILD_SYSTEM_OPENSSL=1
+  export GRPC_PYTHON_BUILD_SYSTEM_ZLIB=1
+fi
+
 retry_times=3
 install_command="python -m pip install $@"
 ${install_command}

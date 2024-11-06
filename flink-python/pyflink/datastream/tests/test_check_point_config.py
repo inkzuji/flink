@@ -15,9 +15,10 @@
 #  See the License for the specific language governing permissions and
 # limitations under the License.
 ################################################################################
-from pyflink.datastream import (CheckpointConfig, CheckpointingMode, ExternalizedCheckpointCleanup,
+from pyflink.common import Duration
+from pyflink.datastream import (CheckpointingMode,
+                                ExternalizedCheckpointRetention,
                                 StreamExecutionEnvironment)
-from pyflink.java_gateway import get_gateway
 from pyflink.testing.test_case_utils import PyFlinkTestCase
 
 
@@ -28,22 +29,6 @@ class CheckpointConfigTests(PyFlinkTestCase):
             .get_execution_environment()
 
         self.checkpoint_config = self.env.get_checkpoint_config()
-
-    def test_constant(self):
-        gateway = get_gateway()
-        JCheckpointConfig = gateway.jvm.org.apache.flink.streaming.api.environment.CheckpointConfig
-
-        self.assertEqual(CheckpointConfig.DEFAULT_MAX_CONCURRENT_CHECKPOINTS,
-                         JCheckpointConfig.DEFAULT_MAX_CONCURRENT_CHECKPOINTS)
-
-        self.assertEqual(CheckpointConfig.DEFAULT_MIN_PAUSE_BETWEEN_CHECKPOINTS,
-                         JCheckpointConfig.DEFAULT_MIN_PAUSE_BETWEEN_CHECKPOINTS)
-
-        self.assertEqual(CheckpointConfig.DEFAULT_TIMEOUT, JCheckpointConfig.DEFAULT_TIMEOUT)
-
-        self.assertEqual(CheckpointConfig.DEFAULT_MODE,
-                         CheckpointingMode._from_j_checkpointing_mode(
-                             JCheckpointConfig.DEFAULT_MODE))
 
     def test_is_checkpointing_enabled(self):
 
@@ -108,46 +93,52 @@ class CheckpointConfigTests(PyFlinkTestCase):
 
         self.assertFalse(self.checkpoint_config.is_fail_on_checkpointing_errors())
 
-    def test_get_set_externalized_checkpoints_cleanup(self):
+    def test_get_set_tolerable_checkpoint_failure_number(self):
+
+        self.assertEqual(self.checkpoint_config.get_tolerable_checkpoint_failure_number(), 0)
+
+        self.checkpoint_config.set_tolerable_checkpoint_failure_number(2)
+
+        self.assertEqual(self.checkpoint_config.get_tolerable_checkpoint_failure_number(), 2)
+
+    def test_get_set_externalized_checkpoints_retention(self):
 
         self.assertFalse(self.checkpoint_config.is_externalized_checkpoints_enabled())
 
-        self.assertIsNone(self.checkpoint_config.get_externalized_checkpoint_cleanup())
+        self.assertEqual(self.checkpoint_config.get_externalized_checkpoint_retention(),
+                         ExternalizedCheckpointRetention.NO_EXTERNALIZED_CHECKPOINTS)
 
-        self.checkpoint_config.enable_externalized_checkpoints(
-            ExternalizedCheckpointCleanup.RETAIN_ON_CANCELLATION)
+        self.checkpoint_config.set_externalized_checkpoint_retention(
+            ExternalizedCheckpointRetention.RETAIN_ON_CANCELLATION)
 
         self.assertTrue(self.checkpoint_config.is_externalized_checkpoints_enabled())
 
-        self.assertEqual(self.checkpoint_config.get_externalized_checkpoint_cleanup(),
-                         ExternalizedCheckpointCleanup.RETAIN_ON_CANCELLATION)
+        self.assertEqual(self.checkpoint_config.get_externalized_checkpoint_retention(),
+                         ExternalizedCheckpointRetention.RETAIN_ON_CANCELLATION)
 
-        self.checkpoint_config.enable_externalized_checkpoints(
-            ExternalizedCheckpointCleanup.DELETE_ON_CANCELLATION)
+        self.checkpoint_config.set_externalized_checkpoint_retention(
+            ExternalizedCheckpointRetention.DELETE_ON_CANCELLATION)
 
-        self.assertEqual(self.checkpoint_config.get_externalized_checkpoint_cleanup(),
-                         ExternalizedCheckpointCleanup.DELETE_ON_CANCELLATION)
-
-    def test_get_set_prefer_checkpoint_for_recovery(self):
-
-        self.assertFalse(self.checkpoint_config.is_prefer_checkpoint_for_recovery())
-
-        self.checkpoint_config.set_prefer_checkpoint_for_recovery(True)
-
-        self.assertTrue(self.checkpoint_config.is_prefer_checkpoint_for_recovery())
+        self.assertEqual(self.checkpoint_config.get_externalized_checkpoint_retention(),
+                         ExternalizedCheckpointRetention.DELETE_ON_CANCELLATION)
 
     def test_is_unaligned_checkpointing_enabled(self):
 
         self.assertFalse(self.checkpoint_config.is_unaligned_checkpoints_enabled())
+        self.assertFalse(self.checkpoint_config.is_force_unaligned_checkpoints())
+        self.assertEqual(self.checkpoint_config.get_alignment_timeout(), Duration.of_millis(0))
 
         self.checkpoint_config.enable_unaligned_checkpoints()
-
         self.assertTrue(self.checkpoint_config.is_unaligned_checkpoints_enabled())
 
         self.checkpoint_config.disable_unaligned_checkpoints()
-
         self.assertFalse(self.checkpoint_config.is_unaligned_checkpoints_enabled())
 
         self.checkpoint_config.enable_unaligned_checkpoints(True)
-
         self.assertTrue(self.checkpoint_config.is_unaligned_checkpoints_enabled())
+
+        self.checkpoint_config.set_force_unaligned_checkpoints(True)
+        self.assertTrue(self.checkpoint_config.is_force_unaligned_checkpoints())
+
+        self.checkpoint_config.set_alignment_timeout(Duration.of_minutes(1))
+        self.assertEqual(self.checkpoint_config.get_alignment_timeout(), Duration.of_minutes(1))

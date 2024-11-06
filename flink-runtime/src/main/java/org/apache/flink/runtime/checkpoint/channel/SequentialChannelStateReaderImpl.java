@@ -23,10 +23,12 @@ import org.apache.flink.runtime.checkpoint.OperatorSubtaskState;
 import org.apache.flink.runtime.checkpoint.StateObjectCollection;
 import org.apache.flink.runtime.checkpoint.TaskStateSnapshot;
 import org.apache.flink.runtime.io.network.api.writer.ResultPartitionWriter;
+import org.apache.flink.runtime.io.network.logger.NetworkActionsLogger;
 import org.apache.flink.runtime.io.network.partition.consumer.InputGate;
 import org.apache.flink.runtime.state.AbstractChannelStateHandle;
 import org.apache.flink.runtime.state.StreamStateHandle;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.util.Collection;
 import java.util.HashSet;
@@ -194,15 +196,19 @@ class ChannelStateChunkReader {
         while (length > 0) {
             RecoveredChannelStateHandler.BufferWithContext<Context> bufferWithContext =
                     stateHandler.getBuffer(channelInfo);
-            try {
+            try (Closeable ignored =
+                    NetworkActionsLogger.measureIO(
+                            "ChannelStateChunkReader#readChunk", bufferWithContext.buffer)) {
                 while (length > 0 && bufferWithContext.buffer.isWritable()) {
                     length -= serializer.readData(source, bufferWithContext.buffer, length);
                 }
-                stateHandler.recover(channelInfo, oldSubtaskIndex, bufferWithContext.context);
             } catch (Exception e) {
-                bufferWithContext.buffer.recycle();
+                bufferWithContext.close();
                 throw e;
             }
+
+            // Passing the ownership of buffer to inside.
+            stateHandler.recover(channelInfo, oldSubtaskIndex, bufferWithContext);
         }
     }
 }

@@ -69,7 +69,7 @@ public class TestUtils {
         Collection<OperatorState> operatorStates = new ArrayList<>(operatorIds.length);
 
         for (OperatorID operatorId : operatorIds) {
-            final OperatorState operatorState = new OperatorState(operatorId, 1, 42);
+            final OperatorState operatorState = new OperatorState(null, null, operatorId, 1, 42);
             final OperatorSubtaskState subtaskState =
                     OperatorSubtaskState.builder()
                             .setManagedOperatorState(
@@ -93,7 +93,7 @@ public class TestUtils {
             SavepointRestoreSettings savepointRestoreSettings, JobVertex... jobVertices) {
 
         // enable checkpointing which is required to resume from a savepoint
-        final CheckpointCoordinatorConfiguration checkpoinCoordinatorConfiguration =
+        final CheckpointCoordinatorConfiguration checkpointCoordinatorConfiguration =
                 CheckpointCoordinatorConfiguration.builder()
                         .setCheckpointInterval(1000L)
                         .setCheckpointTimeout(1000L)
@@ -103,11 +103,10 @@ public class TestUtils {
                                 CheckpointRetentionPolicy.NEVER_RETAIN_AFTER_TERMINATION)
                         .setExactlyOnce(true)
                         .setUnalignedCheckpointsEnabled(false)
-                        .setPreferCheckpointForRecovery(false)
                         .setTolerableCheckpointFailureNumber(0)
                         .build();
         final JobCheckpointingSettings checkpointingSettings =
-                new JobCheckpointingSettings(checkpoinCoordinatorConfiguration, null);
+                new JobCheckpointingSettings(checkpointCoordinatorConfiguration, null);
 
         return JobGraphBuilder.newStreamingJobGraphBuilder()
                 .addJobVertices(Arrays.asList(jobVertices))

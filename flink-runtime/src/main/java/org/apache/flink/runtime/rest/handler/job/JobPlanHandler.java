@@ -1,4 +1,3 @@
-package org.apache.flink.runtime.rest.handler.job;
 /*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
@@ -17,7 +16,8 @@ package org.apache.flink.runtime.rest.handler.job;
  * limitations under the License.
  */
 
-import org.apache.flink.api.common.time.Time;
+package org.apache.flink.runtime.rest.handler.job;
+
 import org.apache.flink.runtime.executiongraph.AccessExecutionGraph;
 import org.apache.flink.runtime.rest.handler.HandlerRequest;
 import org.apache.flink.runtime.rest.handler.RestHandlerException;
@@ -30,10 +30,11 @@ import org.apache.flink.runtime.rest.messages.MessageHeaders;
 import org.apache.flink.runtime.rest.messages.ResponseBody;
 import org.apache.flink.runtime.webmonitor.RestfulGateway;
 import org.apache.flink.runtime.webmonitor.history.ArchivedJson;
-import org.apache.flink.runtime.webmonitor.history.JsonArchivist;
+import org.apache.flink.runtime.webmonitor.history.OnlyExecutionGraphJsonArchivist;
 import org.apache.flink.runtime.webmonitor.retriever.GatewayRetriever;
 
 import java.io.IOException;
+import java.time.Duration;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Map;
@@ -42,11 +43,11 @@ import java.util.concurrent.Executor;
 /** Handler serving the job execution plan. */
 public class JobPlanHandler
         extends AbstractAccessExecutionGraphHandler<JobPlanInfo, JobMessageParameters>
-        implements JsonArchivist {
+        implements OnlyExecutionGraphJsonArchivist {
 
     public JobPlanHandler(
             GatewayRetriever<? extends RestfulGateway> leaderRetriever,
-            Time timeout,
+            Duration timeout,
             Map<String, String> headers,
             MessageHeaders<EmptyRequestBody, JobPlanInfo, JobMessageParameters> messageHeaders,
             ExecutionGraphCache executionGraphCache,
@@ -57,8 +58,7 @@ public class JobPlanHandler
 
     @Override
     protected JobPlanInfo handleRequest(
-            HandlerRequest<EmptyRequestBody, JobMessageParameters> request,
-            AccessExecutionGraph executionGraph)
+            HandlerRequest<EmptyRequestBody> request, AccessExecutionGraph executionGraph)
             throws RestHandlerException {
         return createJobPlanInfo(executionGraph);
     }

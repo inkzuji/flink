@@ -43,7 +43,7 @@ public class SqlDropPartitions extends SqlAlterTable {
             SqlIdentifier tableName,
             boolean ifExists,
             List<SqlNodeList> partSpecs) {
-        super(pos, tableName);
+        super(pos, tableName, false);
         this.ifExists = ifExists;
         this.partSpecs = partSpecs;
     }
@@ -70,11 +70,14 @@ public class SqlDropPartitions extends SqlAlterTable {
         }
         int opLeftPrec = getOperator().getLeftPrec();
         int opRightPrec = getOperator().getRightPrec();
+        final SqlWriter.Frame frame = writer.startList("", "");
         for (SqlNodeList partSpec : partSpecs) {
+            writer.sep(",");
             writer.newlineAndIndent();
             writer.keyword("PARTITION");
             partSpec.unparse(writer, opLeftPrec, opRightPrec);
         }
+        writer.endList(frame);
     }
 
     @Nonnull
@@ -84,5 +87,11 @@ public class SqlDropPartitions extends SqlAlterTable {
         operands.add(tableIdentifier);
         operands.addAll(partSpecs);
         return operands;
+    }
+
+    /** Alter table add partition context. */
+    public static class AlterTableDropPartitionsContext {
+        public boolean ifExists;
+        public List<SqlNodeList> partSpecs;
     }
 }

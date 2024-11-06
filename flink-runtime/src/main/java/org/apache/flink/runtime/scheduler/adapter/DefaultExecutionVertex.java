@@ -18,18 +18,17 @@
 
 package org.apache.flink.runtime.scheduler.adapter;
 
-import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.runtime.execution.ExecutionState;
 import org.apache.flink.runtime.jobgraph.IntermediateResultPartitionID;
 import org.apache.flink.runtime.scheduler.strategy.ConsumedPartitionGroup;
 import org.apache.flink.runtime.scheduler.strategy.ExecutionVertexID;
 import org.apache.flink.runtime.scheduler.strategy.SchedulingExecutionVertex;
+import org.apache.flink.util.IterableUtils;
 
 import java.util.List;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
-import static org.apache.flink.util.IterableUtils.flatMap;
 import static org.apache.flink.util.Preconditions.checkNotNull;
 
 /** Default implementation of {@link SchedulingExecutionVertex}. */
@@ -56,16 +55,8 @@ class DefaultExecutionVertex implements SchedulingExecutionVertex {
         this.executionVertexId = checkNotNull(executionVertexId);
         this.stateSupplier = checkNotNull(stateSupplier);
         this.producedResults = checkNotNull(producedPartitions);
-        this.consumedPartitionGroups = consumedPartitionGroups;
-        this.resultPartitionRetriever = resultPartitionRetriever;
-    }
-
-    @VisibleForTesting
-    DefaultExecutionVertex(
-            ExecutionVertexID executionVertexId,
-            List<DefaultResultPartition> producedPartitions,
-            Supplier<ExecutionState> stateSupplier) {
-        this(executionVertexId, producedPartitions, stateSupplier, null, null);
+        this.consumedPartitionGroups = checkNotNull(consumedPartitionGroups);
+        this.resultPartitionRetriever = checkNotNull(resultPartitionRetriever);
     }
 
     @Override
@@ -80,7 +71,7 @@ class DefaultExecutionVertex implements SchedulingExecutionVertex {
 
     @Override
     public Iterable<DefaultResultPartition> getConsumedResults() {
-        return () -> flatMap(consumedPartitionGroups, resultPartitionRetriever);
+        return IterableUtils.flatMap(consumedPartitionGroups, resultPartitionRetriever);
     }
 
     @Override

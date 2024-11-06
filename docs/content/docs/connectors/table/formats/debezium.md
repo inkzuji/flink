@@ -44,7 +44,7 @@ However, currently Flink can't combine UPDATE_BEFORE and UPDATE_AFTER into a sin
 Dependencies
 ------------
 
-#### Debezium Avro
+#### Debezium Confluent Avro
 
 {{< sql_download_table "debezium-avro-confluent" >}}
 
@@ -85,7 +85,9 @@ Debezium provides a unified format for changelog, here is a simple example for a
 *Note: please refer to [Debezium documentation](https://debezium.io/documentation/reference/1.3/connectors/mysql.html#mysql-connector-events_debezium) about the meaning of each fields.*
 
 The MySQL `products` table has 4 columns (`id`, `name`, `description` and `weight`). The above JSON message is an update change event on the `products` table where the `weight` value of the row with `id = 111` is changed from `5.18` to `5.15`.
-Assuming this messages is synchronized to Kafka topic `products_binlog`, then we can use the following DDL to consume this topic and interpret the change events.
+Assuming this messages is synchronized to Kafka topic `products_binlog`, then we can use the following DDLs (for Debezium JSON and Debezium Confluent Avro) to consume this topic and interpret the change events.
+
+#### Debezium JSON DDL
 
 ```sql
 CREATE TABLE topic_products (
@@ -100,7 +102,6 @@ CREATE TABLE topic_products (
  'properties.bootstrap.servers' = 'localhost:9092',
  'properties.group.id' = 'testGroup',
  -- using 'debezium-json' as the format to interpret Debezium JSON messages
- -- please use 'debezium-avro-confluent' if Debezium encodes messages in Avro format
  'format' = 'debezium-json'
 )
 ```
@@ -133,7 +134,30 @@ In some cases, users may setup the Debezium Kafka Connect with the Kafka configu
 
 In order to interpret such messages, you need to add the option `'debezium-json.schema-include' = 'true'` into above DDL WITH clause (`false` by default). Usually, this is not recommended to include schema because this makes the messages very verbose and reduces parsing performance.
 
-After registering the topic as a Flink table, then you can consume the Debezium messages as a changelog source.
+#### Debezium Confluent Avro DDL
+
+```sql
+CREATE TABLE topic_products (
+  -- schema is totally the same to the MySQL "products" table
+  id BIGINT,
+  name STRING,
+  description STRING,
+  weight DECIMAL(10, 2)
+) WITH (
+ 'connector' = 'kafka',
+ 'topic' = 'products_binlog',
+ 'properties.bootstrap.servers' = 'localhost:9092',
+ 'properties.group.id' = 'testGroup',
+ -- using 'debezium-avro-confluent' as the format to interpret Debezium Avro messages
+ 'format' = 'debezium-avro-confluent',
+ -- the URL to the schema registry for Kafka
+ 'debezium-avro-confluent.url' = 'http://localhost:8081'
+)
+```
+
+#### Producing Results
+
+For every data format, after registering the topic as a Flink table, you can consume the Debezium messages as a changelog source.
 
 ```sql
 -- a real-time materialized view on the MySQL "products"
@@ -234,8 +258,8 @@ CREATE TABLE KafkaTable (
 Format Options
 ----------------
 
-Flink provides `debezium-avro-confluent` and `debezium-json` formats to interpret Avro or Json messages produced by Debezium.
-Use format `debezium-avro-confluent` to interpret Debezium Avro messages and format `debezium-json` to interpret Debezium Json messages.
+Flink provides `debezium-avro-confluent` and `debezium-json` formats to interpret Avro or JSON messages produced by Debezium.
+Use format `debezium-avro-confluent` to interpret Debezium Avro messages and format `debezium-json` to interpret Debezium JSON messages.
 
 {{< tabs "a8edce02-58d5-4e0b-bc4b-75d05a98a0f9" >}}
 {{< tab "Debezium Avro" >}}
@@ -251,27 +275,97 @@ Use format `debezium-avro-confluent` to interpret Debezium Avro messages and for
       </tr>
     </thead>
     <tbody>
-    <tr>
-      <td><h5>format</h5></td>
-      <td>required</td>
-      <td style="word-wrap: break-word;">(none)</td>
-      <td>String</td>
-      <td>Specify what format to use, here should be <code>'debezium-avro-confluent'</code>.</td>
-    </tr>
-    <tr>
-      <td><h5>debezium-avro-confluent.schema-registry.url</h5></td>
-      <td>required</td>
-      <td style="word-wrap: break-word;">(none)</td>
-      <td>String</td>
-      <td>The URL of the Confluent Schema Registry to fetch/register schemas.</td>
-    </tr>
-    <tr>
-      <td><h5>debezium-avro-confluent.schema-registry.subject</h5></td>
-      <td>optional</td>
-      <td style="word-wrap: break-word;">(none)</td>
-      <td>String</td>
-      <td>The Confluent Schema Registry subject under which to register the schema used by this format during serialization. By default, kafka connector use "&lt;topic_name&gt;-value" as the default subject name when debezium-avro-confluent is used as the value format. But for other connectors (e.g. filesystem), the subject option is required when used as sink.</td>
-    </tr>
+        <tr>
+            <td><h5>format</h5></td>
+            <td>required</td>
+            <td style="word-wrap: break-word;">(none)</td>
+            <td>String</td>
+            <td>Specify what format to use, here should be <code>'debezium-avro-confluent'</code>.</td>
+        </tr>
+        <tr>
+            <td><h5>debezium-avro-confluent.basic-auth.credentials-source</h5></td>
+            <td>optional</td>
+            <td style="word-wrap: break-word;">(none)</td>
+            <td>String</td>
+            <td>Basic auth credentials source for Schema Registry</td>
+        </tr>
+        <tr>
+            <td><h5>debezium-avro-confluent.basic-auth.user-info</h5></td>
+            <td>optional</td>
+            <td style="word-wrap: break-word;">(none)</td>
+            <td>String</td>
+            <td>Basic auth user info for schema registry</td>
+        </tr>
+        <tr>
+            <td><h5>debezium-avro-confluent.bearer-auth.credentials-source</h5></td>
+            <td>optional</td>
+            <td style="word-wrap: break-word;">(none)</td>
+            <td>String</td>
+            <td>Bearer auth credentials source for Schema Registry</td>
+        </tr>
+        <tr>
+            <td><h5>debezium-avro-confluent.bearer-auth.token</h5></td>
+            <td>optional</td>
+            <td style="word-wrap: break-word;">(none)</td>
+            <td>String</td>
+            <td>Bearer auth token for Schema Registry</td>
+        </tr>
+        <tr>
+            <td><h5>debezium-avro-confluent.properties</h5></td>
+            <td>optional</td>
+            <td style="word-wrap: break-word;">(none)</td>
+            <td>Map</td>
+            <td>Properties map that is forwarded to the underlying Schema Registry. This is useful for options that are not officially exposed via Flink config options. However, note that Flink options have higher precedence.</td>
+        </tr>
+        <tr>
+            <td><h5>debezium-avro-confluent.ssl.keystore.location</h5></td>
+            <td>optional</td>
+            <td style="word-wrap: break-word;">(none)</td>
+            <td>String</td>
+            <td>Location / File of SSL keystore</td>
+        </tr>
+        <tr>
+            <td><h5>debezium-avro-confluent.ssl.keystore.password</h5></td>
+            <td>optional</td>
+            <td style="word-wrap: break-word;">(none)</td>
+            <td>String</td>
+            <td>Password for SSL keystore</td>
+        </tr>
+        <tr>
+            <td><h5>debezium-avro-confluent.ssl.truststore.location</h5></td>
+            <td>optional</td>
+            <td style="word-wrap: break-word;">(none)</td>
+            <td>String</td>
+            <td>Location / File of SSL truststore</td>
+        </tr>
+        <tr>
+            <td><h5>debezium-avro-confluent.ssl.truststore.password</h5></td>
+            <td>optional</td>
+            <td style="word-wrap: break-word;">(none)</td>
+            <td>String</td>
+            <td>Password for SSL truststore</td>
+        </tr>
+        <tr>
+            <td><h5>debezium-avro-confluent.schema</h5></td>
+            <td>optional</td>
+            <td style="word-wrap: break-word;">(none)</td>
+            <td>String</td>
+            <td>The schema registered or to be registered in the Confluent Schema Registry. If no schema is provided Flink converts the table schema to avro schema. The schema provided must match the Debezium schema which is a nullable record type including fields 'before', 'after', 'op'.</td>
+        </tr>
+        <tr>
+            <td><h5>debezium-avro-confluent.subject</h5></td>
+            <td>optional</td>
+            <td style="word-wrap: break-word;">(none)</td>
+            <td>String</td>
+            <td>The Confluent Schema Registry subject under which to register the schema used by this format during serialization. By default, 'kafka' and 'upsert-kafka' connectors use '&lt;topic_name&gt;-value' or '&lt;topic_name&gt;-key' as the default subject name if this format is used as the value or key format. But for other connectors (e.g. 'filesystem'), the subject option is required when used as sink.</td>
+        </tr>
+        <tr>
+            <td><h5>debezium-avro-confluent.url</h5></td>
+            <td>required</td>
+            <td style="word-wrap: break-word;">(none)</td>
+            <td>String</td>
+            <td>The URL of the Confluent Schema Registry to fetch/register schemas.</td>
+        </tr>
     </tbody>
 </table>
 
@@ -351,10 +445,18 @@ Use format `debezium-avro-confluent` to interpret Debezium Avro messages and for
       <td>Boolean</td>
       <td>Encode all decimals as plain numbers instead of possible scientific notations. By default, decimals may be written using scientific notation. For example, <code>0.000000027</code> is encoded as <code>2.7E-8</code> by default, and will be written as <code>0.000000027</code> if set this option to true.</td>
     </tr>   
+    <tr>
+      <td><h5>debezium-json.encode.ignore-null-fields</h5></td>
+      <td>optional</td>
+      <td style="word-wrap: break-word;">false</td>
+      <td>Boolean</td>
+      <td>Encode only non-null fields. By default, all fields will be included.</td>
+    </tr>
     </tbody>
 </table>
 
-</div>
+{{< /tab >}}
+{{< /tabs >}}
 
 Caveats
 ----------------

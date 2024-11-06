@@ -20,18 +20,9 @@ package org.apache.flink.runtime.state;
 
 import org.apache.flink.annotation.PublicEvolving;
 import org.apache.flink.api.common.ExecutionConfig;
-import org.apache.flink.api.common.JobID;
-import org.apache.flink.api.common.typeutils.TypeSerializer;
-import org.apache.flink.core.fs.CloseableRegistry;
-import org.apache.flink.metrics.MetricGroup;
-import org.apache.flink.runtime.execution.Environment;
-import org.apache.flink.runtime.query.TaskKvStateRegistry;
-import org.apache.flink.runtime.state.ttl.TtlTimeProvider;
-
-import javax.annotation.Nonnull;
+import org.apache.flink.runtime.state.metrics.LatencyTrackingStateConfig;
 
 import java.io.IOException;
-import java.util.Collection;
 
 /**
  * An abstract base implementation of the {@link StateBackend} interface.
@@ -53,30 +44,18 @@ public abstract class AbstractStateBackend implements StateBackend, java.io.Seri
         }
     }
 
+    protected LatencyTrackingStateConfig.Builder latencyTrackingConfigBuilder =
+            LatencyTrackingStateConfig.newBuilder();
+
     // ------------------------------------------------------------------------
     //  State Backend - State-Holding Backends
     // ------------------------------------------------------------------------
 
     @Override
     public abstract <K> AbstractKeyedStateBackend<K> createKeyedStateBackend(
-            Environment env,
-            JobID jobID,
-            String operatorIdentifier,
-            TypeSerializer<K> keySerializer,
-            int numberOfKeyGroups,
-            KeyGroupRange keyGroupRange,
-            TaskKvStateRegistry kvStateRegistry,
-            TtlTimeProvider ttlTimeProvider,
-            MetricGroup metricGroup,
-            @Nonnull Collection<KeyedStateHandle> stateHandles,
-            CloseableRegistry cancelStreamRegistry)
-            throws IOException;
+            KeyedStateBackendParameters<K> parameters) throws IOException;
 
     @Override
     public abstract OperatorStateBackend createOperatorStateBackend(
-            Environment env,
-            String operatorIdentifier,
-            @Nonnull Collection<OperatorStateHandle> stateHandles,
-            CloseableRegistry cancelStreamRegistry)
-            throws Exception;
+            OperatorStateBackendParameters parameters) throws Exception;
 }

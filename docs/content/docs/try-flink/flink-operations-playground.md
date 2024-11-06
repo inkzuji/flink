@@ -93,13 +93,17 @@ We assume that you have [Docker](https://docs.docker.com/) (1.12+) and
 [docker-compose](https://docs.docker.com/compose/) (2.1+) installed on your machine.
 
 The required configuration files are available in the 
-[flink-playgrounds](https://github.com/apache/flink-playgrounds) repository. Check it out and spin
-up the environment:
+[flink-playgrounds](https://github.com/apache/flink-playgrounds) repository. First checkout the code and build the docker image:
 
 ```bash
-git clone --branch release-{{ site.version_title }} https://github.com/apache/flink-playgrounds.git
+git clone https://github.com/apache/flink-playgrounds.git
 cd flink-playgrounds/operations-playground
 docker-compose build
+```
+
+Then start the playground:
+
+```bash
 docker-compose up -d
 ```
 
@@ -321,7 +325,7 @@ windows and that every count is exactly one thousand. Since we are using the
 in its "at-least-once" mode, there is a chance that you will see some duplicate output records.
 
 {{< hint info >}}
-**Note**: Most production setups rely on a resource manager (Kubernetes, Yarn, Mesos) to automatically restart failed processes.
+**Note**: Most production setups rely on a resource manager (Kubernetes, Yarn) to automatically restart failed processes.
 {{< /hint >}}
 
 ### Upgrading & Rescaling a Job
@@ -363,7 +367,7 @@ Suspending job "<job-id>" with a savepoint.
 Savepoint completed. Path: file:<savepoint-path>
 ```
 
-The Savepoint has been stored to the `state.savepoints.dir` configured in the *flink-conf.yaml*,
+The Savepoint has been stored to the `execution.checkpointing.savepoint-dir` configured in the [*Flink configuration file*]({{< ref "docs/deployment/config#flink-configuration-file" >}}),
 which is mounted under */tmp/flink-savepoints-directory/* on your local machine. You will need the 
 path to this Savepoint in the next step. 
 
@@ -398,7 +402,7 @@ curl -X POST localhost:8081/jobs/<job-id>/stop -d '{"drain": false}'
   "operation": {
     "location": "<savepoint-path>"
   }
-
+}
 ```
 {{< /tab >}}
 {{< /tabs >}}
@@ -608,36 +612,6 @@ curl localhost:8081/jobs/<jod-id>
     },
     {
       "id": "<vertex-id>",
-      "name": "Timestamps/Watermarks",
-      "parallelism": 2,
-      "status": "RUNNING",
-      "start-time": 1564467066441,
-      "end-time": -1,
-      "duration": 374378,
-      "tasks": {
-        "CREATED": 0,
-        "FINISHED": 0,
-        "DEPLOYING": 0,
-        "RUNNING": 2,
-        "CANCELING": 0,
-        "FAILED": 0,
-        "CANCELED": 0,
-        "RECONCILING": 0,
-        "SCHEDULED": 0
-      },
-      "metrics": {
-        "read-bytes": 5066280,
-        "read-bytes-complete": true,
-        "write-bytes": 5033496,
-        "write-bytes-complete": true,
-        "read-records": 166349,
-        "read-records-complete": true,
-        "write-records": 166349,
-        "write-records-complete": true
-      }
-    },
-    {
-      "id": "<vertex-id>",
       "name": "ClickEvent Counter",
       "parallelism": 2,
       "status": "RUNNING",
@@ -711,6 +685,7 @@ curl localhost:8081/jobs/<jod-id>
   "plan": {
     "jid": "<job-id>",
     "name": "Click Event Count",
+    "type": "STREAMING",
     "nodes": [
       {
         "id": "<vertex-id>",
@@ -739,22 +714,6 @@ curl localhost:8081/jobs/<jod-id>
             "num": 0,
             "id": "<vertex-id>",
             "ship_strategy": "HASH",
-            "exchange": "pipelined_bounded"
-          }
-        ],
-        "optimizer_properties": {}
-      },
-      {
-        "id": "<vertex-id>",
-        "parallelism": 2,
-        "operator": "",
-        "operator_strategy": "",
-        "description": "Timestamps/Watermarks",
-        "inputs": [
-          {
-            "num": 0,
-            "id": "<vertex-id>",
-            "ship_strategy": "FORWARD",
             "exchange": "pipelined_bounded"
           }
         ],

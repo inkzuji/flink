@@ -59,6 +59,14 @@ public interface BlobWriter {
     PermanentBlobKey putPermanent(JobID jobId, InputStream inputStream) throws IOException;
 
     /**
+     * Delete the uploaded data with the given {@link JobID} and {@link PermanentBlobKey}.
+     *
+     * @param jobId ID of the job this blob belongs to
+     * @param permanentBlobKey the key of this blob
+     */
+    boolean deletePermanent(JobID jobId, PermanentBlobKey permanentBlobKey);
+
+    /**
      * Returns the min size before data will be offloaded to the BLOB store.
      *
      * @return minimum offloading size
@@ -79,24 +87,37 @@ public interface BlobWriter {
     static <T> Either<SerializedValue<T>, PermanentBlobKey> serializeAndTryOffload(
             T value, JobID jobId, BlobWriter blobWriter) throws IOException {
         Preconditions.checkNotNull(value);
-        Preconditions.checkNotNull(jobId);
-        Preconditions.checkNotNull(blobWriter);
 
         final SerializedValue<T> serializedValue = new SerializedValue<>(value);
+
+        return tryOffload(serializedValue, jobId, blobWriter);
+    }
+
+    static <T> Either<SerializedValue<T>, PermanentBlobKey> tryOffload(
+            SerializedValue<T> serializedValue, JobID jobId, BlobWriter blobWriter) {
+        Preconditions.checkNotNull(serializedValue);
+        Preconditions.checkNotNull(jobId);
+        Preconditions.checkNotNull(blobWriter);
 
         if (serializedValue.getByteArray().length < blobWriter.getMinOffloadingSize()) {
             return Either.Left(serializedValue);
         } else {
-            try {
-                final PermanentBlobKey permanentBlobKey =
-                        blobWriter.putPermanent(jobId, serializedValue.getByteArray());
+            return offloadWithException(serializedValue, jobId, blobWriter);
+        }
+    }
 
-                return Either.Right(permanentBlobKey);
-            } catch (IOException e) {
-                LOG.warn("Failed to offload value {} for job {} to BLOB store.", value, jobId, e);
-
-                return Either.Left(serializedValue);
-            }
+    static <T> Either<SerializedValue<T>, PermanentBlobKey> offloadWithException(
+            SerializedValue<T> serializedValue, JobID jobId, BlobWriter blobWriter) {
+        Preconditions.checkNotNull(serializedValue);
+        Preconditions.checkNotNull(jobId);
+        Preconditions.checkNotNull(blobWriter);
+        try {
+            final PermanentBlobKey permanentBlobKey =
+                    blobWriter.putPermanent(jobId, serializedValue.getByteArray());
+            return Either.Right(permanentBlobKey);
+        } catch (IOException e) {
+            LOG.warn("Failed to offload value for job {} to BLOB store.", jobId, e);
+            return Either.Left(serializedValue);
         }
     }
 }

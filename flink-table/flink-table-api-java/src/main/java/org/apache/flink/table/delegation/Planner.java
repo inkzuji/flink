@@ -22,10 +22,13 @@ import org.apache.flink.annotation.Experimental;
 import org.apache.flink.annotation.Internal;
 import org.apache.flink.api.dag.Transformation;
 import org.apache.flink.table.api.ExplainDetail;
+import org.apache.flink.table.api.ExplainFormat;
+import org.apache.flink.table.api.PlanReference;
 import org.apache.flink.table.operations.ModifyOperation;
 import org.apache.flink.table.operations.Operation;
 import org.apache.flink.table.operations.QueryOperation;
 
+import java.io.IOException;
 import java.util.List;
 
 /**
@@ -81,68 +84,24 @@ public interface Planner {
      *
      * @param operations The collection of relational queries for which the AST and execution plan
      *     will be returned.
+     * @param format The output format of explained statement. See more details at {@link
+     *     ExplainFormat}.
      * @param extraDetails The extra explain details which the explain result should include, e.g.
      *     estimated cost, changelog mode for streaming, displaying execution plan in json format
      */
-    String explain(List<Operation> operations, ExplainDetail... extraDetails);
+    String explain(List<Operation> operations, ExplainFormat format, ExplainDetail... extraDetails);
 
-    /**
-     * Returns completion hints for the given statement at the given cursor position. The completion
-     * happens case insensitively.
-     *
-     * @param statement Partial or slightly incorrect SQL statement
-     * @param position cursor position
-     * @return completion hints that fit at the current cursor position
-     */
-    String[] getCompletionHints(String statement, int position);
+    // --- Plan compilation and restore
 
-    /**
-     * Get the json plan of the given {@link ModifyOperation}s.
-     *
-     * <p>The json plan is the string json representation of an optimized ExecNode plan for the
-     * given statement. An ExecNode plan can be serialized to json plan, and a json plan can be
-     * deserialized to an ExecNode plan.
-     *
-     * <p>NOTES: Only the Blink planner supports this method.
-     *
-     * <p><b>NOTES:</b>: This is an experimental feature now.
-     *
-     * @param modifyOperations the {@link ModifyOperation}s to generate json plan.
-     * @return the string json representation of an optimized ExecNode plan for the given
-     *     operations.
-     */
     @Experimental
-    String getJsonPlan(List<ModifyOperation> modifyOperations);
+    InternalPlan loadPlan(PlanReference planReference) throws IOException;
 
-    /**
-     * Returns the execution plan for the given json plan.
-     *
-     * <p>NOTES: Only the Blink planner supports this method.
-     *
-     * <p><b>NOTES:</b>: This is an experimental feature now.
-     *
-     * @param jsonPlan The json plan to be explained.
-     * @param extraDetails The extra explain details which the explain result should include, e.g.
-     *     estimated cost, changelog mode for streaming
-     * @return the execution plan.
-     */
     @Experimental
-    String explainJsonPlan(String jsonPlan, ExplainDetail... extraDetails);
+    InternalPlan compilePlan(List<ModifyOperation> modifyOperations);
 
-    /**
-     * Converts a json plan into a set of runnable {@link Transformation}s.
-     *
-     * <p>The json plan is the string json representation of an optimized ExecNode plan for the
-     * given statement. An ExecNode plan can be serialized to json plan, and a json plan can be
-     * deserialized to an ExecNode plan.
-     *
-     * <p>NOTES: Only the Blink planner supports this method.
-     *
-     * <p><b>NOTES:</b>: This is an experimental feature now.
-     *
-     * @param jsonPlan The json plan to be translated.
-     * @return list of corresponding {@link Transformation}s.
-     */
     @Experimental
-    List<Transformation<?>> translateJsonPlan(String jsonPlan);
+    List<Transformation<?>> translatePlan(InternalPlan plan);
+
+    @Experimental
+    String explainPlan(InternalPlan plan, ExplainDetail... extraDetails);
 }

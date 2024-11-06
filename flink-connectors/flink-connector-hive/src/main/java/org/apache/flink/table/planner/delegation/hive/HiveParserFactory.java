@@ -18,55 +18,37 @@
 
 package org.apache.flink.table.planner.delegation.hive;
 
+import org.apache.flink.configuration.ConfigOption;
 import org.apache.flink.table.api.SqlDialect;
-import org.apache.flink.table.api.config.TableConfigOptions;
-import org.apache.flink.table.catalog.CatalogManager;
+import org.apache.flink.table.calcite.bridge.CalciteContext;
 import org.apache.flink.table.delegation.Parser;
-import org.apache.flink.table.descriptors.DescriptorProperties;
-import org.apache.flink.table.planner.calcite.SqlExprToRexConverterFactory;
-import org.apache.flink.table.planner.delegation.ParserFactory;
-import org.apache.flink.table.planner.delegation.PlannerContext;
+import org.apache.flink.table.delegation.ParserFactory;
 
 import java.util.Collections;
-import java.util.List;
-import java.util.Map;
+import java.util.Set;
 
 /** A Parser factory that creates {@link HiveParser}. */
 public class HiveParserFactory implements ParserFactory {
 
     @Override
-    public Parser create(CatalogManager catalogManager, PlannerContext plannerContext) {
-        SqlExprToRexConverterFactory sqlExprToRexConverterFactory =
-                plannerContext::createSqlExprToRexConverter;
-        return new HiveParser(
-                catalogManager,
-                () ->
-                        plannerContext.createFlinkPlanner(
-                                catalogManager.getCurrentCatalog(),
-                                catalogManager.getCurrentDatabase()),
-                plannerContext::createCalciteParser,
-                tableSchema ->
-                        sqlExprToRexConverterFactory.create(
-                                plannerContext.getTypeFactory().buildRelNodeRowType(tableSchema)),
-                plannerContext);
+    public String factoryIdentifier() {
+        return SqlDialect.HIVE.name().toLowerCase();
     }
 
     @Override
-    public Map<String, String> optionalContext() {
-        DescriptorProperties properties = new DescriptorProperties();
-        return properties.asMap();
+    public Set<ConfigOption<?>> requiredOptions() {
+        return Collections.emptySet();
     }
 
     @Override
-    public Map<String, String> requiredContext() {
-        DescriptorProperties properties = new DescriptorProperties();
-        properties.putString(
-                TableConfigOptions.TABLE_SQL_DIALECT.key(), SqlDialect.HIVE.name().toLowerCase());
-        return properties.asMap();
+    public Set<ConfigOption<?>> optionalOptions() {
+        return Collections.emptySet();
     }
 
     @Override
-    public List<String> supportedProperties() {
-        return Collections.singletonList(TableConfigOptions.TABLE_SQL_DIALECT.key());
+    public Parser create(Context context) {
+        // in here, we hard cast the context to CalciteContext for Hive parser will need
+        // CalciteContext to build Calcite's RelNode.
+        return new HiveParser((CalciteContext) context);
     }
 }

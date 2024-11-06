@@ -24,6 +24,7 @@ import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.core.fs.CloseableRegistry;
 import org.apache.flink.core.fs.FSDataInputStream;
 import org.apache.flink.core.memory.DataInputViewStreamWrapper;
+import org.apache.flink.runtime.state.InternalKeyContext;
 import org.apache.flink.runtime.state.KeyGroupRange;
 import org.apache.flink.runtime.state.KeyGroupRangeOffsets;
 import org.apache.flink.runtime.state.KeyGroupsStateHandle;
@@ -200,12 +201,13 @@ public class HeapRestoreOperation<K> implements RestoreOperation<Void> {
             int keyGroupIndex = groupOffset.f0;
             long offset = groupOffset.f1;
 
-            // Check that restored key groups all belong to the backend.
-            Preconditions.checkState(
-                    keyGroupRange.contains(keyGroupIndex),
-                    "Key group %s doesn't belong to this backend with key group range: %s",
-                    keyGroupIndex,
-                    keyGroupRange);
+            if (!keyGroupRange.contains(keyGroupIndex)) {
+                LOG.debug(
+                        "Key group {} doesn't belong to this backend with key group range: {}",
+                        keyGroupIndex,
+                        keyGroupRange);
+                continue;
+            }
 
             fsDataInputStream.seek(offset);
 

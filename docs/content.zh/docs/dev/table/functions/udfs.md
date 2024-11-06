@@ -77,6 +77,9 @@ env.from("MyTable").select(call("SubstringFunction", $("myField"), 5, 12));
 // 在 SQL 里调用注册好的函数
 env.sqlQuery("SELECT SubstringFunction(myField, 5, 12) FROM MyTable");
 
+// 在 SQL 里使用命名参数调用注册好的函数
+env.sqlQuery("SELECT SubstringFunction(param1 => myField, param2 => 5, param3 => 12) FROM MyTable");
+
 ```
 {{< /tab >}}
 {{< tab "Scala" >}}
@@ -168,6 +171,76 @@ env.createTemporarySystemFunction("SubstringFunction", new SubstringFunction(tru
 {{< /tab >}}
 {{< /tabs >}}
 
+你可以在 Table API 中使用 `*` 表达式作为函数的一个参数，它将被扩展为该表所有的列作为函数对应位置的参数。
+
+{{< tabs "101c5f48-f5a3-4e9a-b8ef-2fdd21a9e007" >}}
+{{< tab "Java" >}}
+```java
+import org.apache.flink.table.api.*;
+import org.apache.flink.table.functions.ScalarFunction;
+import static org.apache.flink.table.api.Expressions.*;
+
+public static class MyConcatFunction extends ScalarFunction {
+  public String eval(@DataTypeHint(inputGroup = InputGroup.ANY) Object... fields) {
+    return Arrays.stream(fields)
+        .map(Object::toString)
+        .collect(Collectors.joining(","));
+  }
+}
+
+TableEnvironment env = TableEnvironment.create(...);
+
+// 使用 $("*") 作为函数的参数，如果 MyTable 有 3 列 (a, b, c)，
+// 它们都将会被传给 MyConcatFunction。
+env.from("MyTable").select(call(MyConcatFunction.class, $("*")));
+
+// 它等价于显式地将所有列传给 MyConcatFunction。
+env.from("MyTable").select(call(MyConcatFunction.class, $("a"), $("b"), $("c")));
+
+```
+{{< /tab >}}
+{{< tab "Scala" >}}
+```scala
+import org.apache.flink.table.api._
+import org.apache.flink.table.functions.ScalarFunction
+
+import scala.annotation.varargs
+
+class MyConcatFunction extends ScalarFunction {
+  @varargs
+  def eval(@DataTypeHint(inputGroup = InputGroup.ANY) row: AnyRef*): String = {
+    row.map(f => f.toString).mkString(",")
+  }
+}
+
+val env = TableEnvironment.create(...)
+
+// 使用 $"*" 作为函数的参数，如果 MyTable 有 3 个列 (a, b, c)，
+// 它们都将会被传给 MyConcatFunction。
+env.from("MyTable").select(call(classOf[MyConcatFunction], $"*"));
+
+// 它等价于显式地将所有列传给 MyConcatFunction。
+env.from("MyTable").select(call(classOf[MyConcatFunction], $"a", $"b", $"c"));
+
+```
+
+{{< /tab >}}
+{{< /tabs >}}
+
+{{< hint info >}}
+`TableEnvironment` 提供两个重载方法使用用户自定义函数来注册临时系统函数:
+
+- *createTemporarySystemFunction(
+  String name, Class<? extends UserDefinedFunction> functionClass)*
+- *createTemporarySystemFunction(String name, UserDefinedFunction functionInstance)*
+
+在用户自定义函数类支持无参数构造器时，建议尽量使用 `functionClass` 而不是 `functionInstance`, 
+因为 Flink 作为底层框架可以增加额外的内部功能来控制用户自定义函数实例的创建工作。
+目前， `TableEnvironmentImpl` 里默认的实现会在创建实例之前对不同的 `UserDefinedFunction` 子类类型, 
+例如`ScalaFunction`, `TableFunction`， 进行具体的类和方法实现验证。
+未来还可以在不影响用户代码的情况下在系统底层添加更多的功能和自动优化。
+{{< /hint >}}
+
 {{< top >}}
 
 开发指南
@@ -184,6 +257,9 @@ env.createTemporarySystemFunction("SubstringFunction", new SubstringFunction(tru
 该类必须声明为 `public` ，而不是 `abstract` ，并且可以被全局访问。不允许使用非静态内部类或匿名类。
 
 为了将自定义函数存储在持久化的 catalog 中，该类必须具有默认构造器，且在运行时可实例化。
+
+Anonymous functions in Table API can only be persisted if the function is not stateful (i.e. containing
+only transient and static fields).
 
 ### 求值方法
 
@@ -257,7 +333,7 @@ class SumFunction extends ScalarFunction {
 
 ### 类型推导
 
-Table（类似于 SQL 标准）是一种强类型的 API。因此，函数的参数和返回类型都必须映射到[数据类型]({%link dev/table/types.zh.md %})。
+Table（类似于 SQL 标准）是一种强类型的 API。因此，函数的参数和返回类型都必须映射到[数据类型]({{< ref "docs/dev/table/types.zh.md" >}})。
 
 从逻辑角度看，Planner 需要知道数据类型、精度和小数位数；从 JVM 角度来看，Planner 在调用自定义函数时需要知道如何将内部数据结构表示为 JVM 对象。
 
@@ -272,7 +348,7 @@ Flink 自定义函数实现了自动的类型推导提取，通过反射从函�
 
 自动类型推导会检查函数的类和求值方法，派生出函数参数和结果的数据类型， `@DataTypeHint` 和 `@FunctionHint` 注解支持自动类型推导。
 
-有关可以隐式映射到数据类型的类的完整列表，请参阅[数据类型]({%link dev/table/types.zh.md %}#数据类型注解)。
+有关可以隐式映射到数据类型的类的完整列表，请参阅[数据类型]({{< ref "docs/dev/table/types.zh.md" >}}#数据类型注解)。
 
 **`@DataTypeHint`**
 
@@ -526,6 +602,195 @@ public static class LiteralFunction extends ScalarFunction {
 For more examples of custom type inference, see also the `flink-examples-table` module with
 {{< gh_link file="flink-examples/flink-examples-table/src/main/java/org/apache/flink/table/examples/java/functions/AdvancedFunctionsExample.java" name="advanced function implementation" >}}.
 
+### 命名参数
+
+在调用函数时，可以使用参数名称来指定参数值。命名参数允许同时传递参数名和值给函数，避免了因为错误的参数顺序而导致混淆，并提高了代码的可读性和可维护性。 此外，命名参数还可以省略非必需的参数，默认情况下会使用 `null` 进行填充。
+我们可以通过 `@ArgumentHint` 注解来指定参数的名称，类型，是否是必需的参数等。
+
+**`@ArgumentHint`**
+
+下面三个示例展示了如何在不同的范围内使用 `@ArgumentHint`。更多信息请参考注解类的文档。
+
+1. 在 function 的 `eval` 方法的参数上使用 `@ArgumentHint` 注解。
+
+{{< tabs "8064df87-eb42-4def-9bd2-0988fc246d37" >}}
+{{< tab "Java" >}}
+
+```java
+import com.sun.tracing.dtrace.ArgsAttributes;
+import org.apache.flink.table.annotation.ArgumentHint;
+import org.apache.flink.table.functions.ScalarFunction;
+
+public static class NamedParameterClass extends ScalarFunction {
+
+    // 使用 @ArgumentHint 注解指定参数的名称，参数类型，以及是否是必需的参数
+    public String eval(@ArgumentHint(name = "param1", isOptional = false, type = @DataTypeHint("STRING")) String s1,
+                       @ArgumentHint(name = "param2", isOptional = true, type = @DataTypeHint("INT")) Integer s2) {
+        return s1 + ", " + s2;
+    }
+}
+
+```
+{{< /tab >}}
+{{< tab "Scala" >}}
+```scala
+import org.apache.flink.table.annotation.ArgumentHint;
+import org.apache.flink.table.functions.ScalarFunction;
+
+class NamedParameterClass extends ScalarFunction {
+
+  // 使用 @ArgumentHint 注解指定参数的名称，参数类型，以及是否是必需的参数
+  def eval(@ArgumentHint(name = "param1", isOptional = false, `type` = @DataTypeHint("STRING")) s1: String,
+          @ArgumentHint(name = "param2", isOptional = true, `type` = @DataTypeHint("INTEGER")) s2: Integer) = {
+    s1 + ", " + s2
+  }
+}
+```
+{{< /tab >}}
+{{< /tabs >}}
+
+2. 在 function 的 `eval` 方法上使用 `@ArgumentHint` 注解。
+
+{{< tabs "1356086c-189c-4932-a797-badf5b5e27ab" >}}
+{{< tab "Java" >}}
+```java
+import org.apache.flink.table.annotation.ArgumentHint;
+import org.apache.flink.table.functions.ScalarFunction;
+
+public static class NamedParameterClass extends ScalarFunction {
+    
+  // 使用 @ArgumentHint 注解指定参数的名称，参数类型，以及该参数是否是必需的参数
+  @FunctionHint(
+          argument = {@ArgumentHint(name = "param1", isOptional = false, type = @DataTypeHint("STRING")),
+                  @ArgumentHint(name = "param2", isOptional = true, type = @DataTypeHint("INTEGER"))}
+  )
+  public String eval(String s1, Integer s2) {
+    return s1 + ", " + s2;
+  }
+}
+```
+{{< /tab >}}
+{{< tab "Scala" >}}
+```scala
+import org.apache.flink.table.annotation.ArgumentHint;
+import org.apache.flink.table.functions.ScalarFunction;
+
+class NamedParameterClass extends ScalarFunction {
+
+  // 使用 @ArgumentHint 注解指定参数的名称，参数类型，以及是否是必需的参数
+  @FunctionHint(
+    argument = Array(new ArgumentHint(name = "param1", isOptional = false, `type` = new DataTypeHint("STRING")),
+                  new ArgumentHint(name = "param2", isOptional = true, `type` = new DataTypeHint("INTEGER")))
+  )
+  def eval(s1: String, s2: Int): String = {
+    s1 + ", " + s2
+  }
+}
+```
+{{< /tab >}}
+{{< /tabs >}}
+
+3. 在 function 的 class 上使用 `@ArgumentHint` 注解。
+
+{{< tabs "ba00146a-08bf-496c-89bc-8d5e333f04f7" >}}
+{{< tab "Java" >}}
+```java
+import org.apache.flink.table.annotation.ArgumentHint;
+import org.apache.flink.table.functions.ScalarFunction;
+
+// 使用 @ArgumentHint 注解指定参数的名称，参数类型，以及是否是必需的参数
+@FunctionHint(
+        argument = {@ArgumentHint(name = "param1", isOptional = false, type = @DataTypeHint("STRING")),
+                @ArgumentHint(name = "param2", isOptional = true, type = @DataTypeHint("INTEGER"))}
+)
+public static class NamedParameterClass extends ScalarFunction {
+    
+  public String eval(String s1, Integer s2) {
+    return s1 + ", " + s2;
+  }
+}
+```
+{{< /tab >}}
+{{< tab "Scala" >}}
+```scala
+import org.apache.flink.table.annotation.ArgumentHint;
+import org.apache.flink.table.functions.ScalarFunction;
+
+// 使用 @ArgumentHint 注解指定参数的名称，参数类型，以及是否是必需的参数
+@FunctionHint(
+  argument = Array(new ArgumentHint(name = "param1", isOptional = false, `type` = new DataTypeHint("STRING")),
+    new ArgumentHint(name = "param2", isOptional = true, `type` = new DataTypeHint("INTEGER")))
+)
+class NamedParameterClass extends ScalarFunction {
+
+  // 使用 @ArgumentHint 注解指定参数的名称，参数类型，以及是否是必需的参数
+  def eval(s1: String, s2: Int): String = {
+    s1 + ", " + s2
+  }
+}
+```
+{{< /tab >}}
+{{< /tabs >}}
+
+
+{{< hint info >}}
+* `@ArgumentHint` 内部包含了 `@DataTypeHint` 注解，因此在 `@FunctionHint` 中不能同时声明 `input` 和 `argument` ，当作用于函数的参数时 `@ArgumentHint` 也不能和 `@DataTypeHint` 同时使用，推荐使用 `@ArgumentHint` 。
+* 命名参数只有在对应的类不包含重载函数和可变参函数才会生效，否则使用命名参数会导致报错。
+{{< /hint >}}
+
+### 确定性
+
+每个用户自定义函数类都可以通过重写 `isDeterministic()` 方法来声明它是否产生确定性的结果。如果该函数不是纯粹函数式的（如`random()`, `date()`, 或`now()`），该方法必须返回 `false`。默认情况下，`isDeterministic()` 返回 `true`。
+
+此外，重写 `isDeterministic()` 方法也可能影响运行时行为。运行时实现可能会在两个不同的阶段被调用：
+
+1. **在生成执行计划期间**：如果一个函数是通过常量表达式调用的或者常量表达式可以从给定的语句中推导出来，那么一个函数就会被预计算以减少常量表达式，并且可能不再在集群上执行。
+除非 `isDeterministic()` 被重写为 `false` 用来在这种情况下禁用常量表达式简化。比如说，以下对 `ABS` 的调用在生成执行计划期间被执行：`SELECT ABS(-1) FROM t` 和 `SELECT ABS(field) FROM t WHERE field = -1`，而 `SELECT ABS(field) FROM t` 则不执行。
+
+2. **在运行时（即在集群执行）**：如果一个函数被调用时带有非常量表达式或 `isDeterministic()` 返回 `false`。
+
+#### 内置函数的确定性
+系统（内置）函数的确定性是不可改变的。存在两种不具有确定性的函数：动态函数和非确定性函数，根据 Apache Calcite `SqlOperator` 的定义：
+```java
+  /**
+   * Returns whether a call to this operator is guaranteed to always return
+   * the same result given the same operands; true is assumed by default.
+   */
+  public boolean isDeterministic() {
+    return true;
+  }
+
+  /**
+   * Returns whether it is unsafe to cache query plans referencing this
+   * operator; false is assumed by default.
+   */
+  public boolean isDynamicFunction() {
+    return false;
+  }
+```
+
+`isDeterministic` 表示函数的确定性，声明返回 `false` 时将在运行时对每个记录进行计算。
+`isDynamicFunction` 声明返回 `true` 时意味着该函数只能在查询开始时被计算，对于批处理模式，它只在生成执行计划期间被执行，
+而对于流模式，它等效于一个非确定性的函数，这是因为查询在逻辑上是连续执行的（流模式对[动态表的连续查询抽象]({{< ref "docs/dev/table/concepts/dynamic_tables" >}}#dynamic-tables-amp-continuous-queries)），所以动态函数在每次查询执行时也会被重新计算（当前实现下等效于每条记录计算）。
+
+以下内置函数总是非确定性的（批和流模式下，都在运行时对每条记录进行计算）
+- UUID
+- RAND
+- RAND_INTEGER
+- CURRENT_DATABASE
+- UNIX_TIMESTAMP
+- CURRENT_ROW_TIMESTAMP
+
+以下内置时间函数是动态的，批处理模式下，将在生成执行计划期间被执行（查询开始），对于流模式，将在运行时对每条记录进行计算
+- CURRENT_DATE
+- CURRENT_TIME
+- CURRENT_TIMESTAMP
+- NOW
+- LOCALTIME
+- LOCALTIMESTAMP
+
+注意：`isDynamicFunction` 仅适用于内置函数
+
 ### 运行时集成
 -------------------
 
@@ -622,7 +887,7 @@ env.sqlQuery("SELECT myField, hashCode(myField) FROM MyTable")
 标量函数
 ----------------
 
-自定义标量函数可以把 0 到多个标量值映射成 1 个标量值，[数据类型]({%link dev/table/types.zh.md %})里列出的任何数据类型都可作为求值方法的参数和返回值类型。
+自定义标量函数可以把 0 到多个标量值映射成 1 个标量值，[数据类型]({{< ref "docs/dev/table/types.zh.md" >}})里列出的任何数据类型都可作为求值方法的参数和返回值类型。
 
 想要实现自定义标量函数，你需要扩展 `org.apache.flink.table.functions` 里面的 `ScalarFunction` 并且实现一个或者多个求值方法。标量函数的行为取决于你写的求值方法。求值方法必须是 `public` 的，而且名字必须是 `eval`。
 
@@ -856,7 +1121,7 @@ env.sqlQuery(
 
 自定义聚合函数（UDAGG）是把一个表（一行或者多行，每行可以有一列或者多列）聚合成一个标量值。
 
-<img alt="UDAGG mechanism" src="/fig/udagg-mechanism.png" width="80%">
+{{<img alt="UDAGG mechanism" src="/fig/udagg-mechanism.png" width="80%">}}
 
 上面的图片展示了一个聚合的例子。假设你有一个关于饮料的表。表里面有三个字段，分别是 `id`、`name`、`price`，表里有 5 行数据。假设你需要找到所有饮料里最贵的饮料的价格，即执行一个 `max()` 聚合。你需要遍历所有 5 行数据，而结果就只有一个数值。
 
@@ -951,7 +1216,7 @@ public abstract class AggregateFunction<T, ACC> extends UserDefinedAggregateFunc
 
   /**
     * Merges a group of accumulator instances into one accumulator instance. This function must be
-    * implemented for datastream session window grouping aggregate and dataset grouping aggregate.
+    * implemented for datastream session window grouping aggregate and bounded grouping aggregate.
     *
     * @param accumulator  the accumulator which will keep the merged aggregate results. It should
     *                     be noted that the accumulator may contain the previous aggregated
@@ -976,7 +1241,7 @@ public abstract class AggregateFunction<T, ACC> extends UserDefinedAggregateFunc
 
   /**
     * Resets the accumulator for this [[AggregateFunction]]. This function must be implemented for
-    * dataset grouping aggregate.
+    * bounded grouping aggregate.
     *
     * @param accumulator  the accumulator which needs to be reset
     */
@@ -1060,7 +1325,7 @@ abstract class AggregateFunction[T, ACC] extends UserDefinedAggregateFunction[T,
 
   /**
     * Merges a group of accumulator instances into one accumulator instance. This function must be
-    * implemented for datastream session window grouping aggregate and dataset grouping aggregate.
+    * implemented for datastream session window grouping aggregate and bounded grouping aggregate.
     *
     * @param accumulator  the accumulator which will keep the merged aggregate results. It should
     *                     be noted that the accumulator may contain the previous aggregated
@@ -1085,7 +1350,7 @@ abstract class AggregateFunction[T, ACC] extends UserDefinedAggregateFunction[T,
 
   /**
     * Resets the accumulator for this [[AggregateFunction]]. This function must be implemented for
-    * dataset grouping aggregate.
+    * bounded grouping aggregate.
     *
     * @param accumulator  the accumulator which needs to be reset
     */
@@ -1170,7 +1435,7 @@ public static class WeightedAvg extends AggregateFunction<Long, WeightedAvgAccum
 
 // 注册函数
 StreamTableEnvironment tEnv = ...
-tEnv.registerFunction("wAvg", new WeightedAvg());
+tEnv.createTemporarySystemFunction("wAvg", WeightedAvg.class);
 
 // 使用函数
 tEnv.sqlQuery("SELECT user, wAvg(points, level) AS avgPoints FROM userScores GROUP BY user");
@@ -1182,8 +1447,8 @@ tEnv.sqlQuery("SELECT user, wAvg(points, level) AS avgPoints FROM userScores GRO
 import java.lang.{Long => JLong, Integer => JInteger}
 import org.apache.flink.api.java.tuple.{Tuple1 => JTuple1}
 import org.apache.flink.api.java.typeutils.TupleTypeInfo
-import org.apache.flink.table.api.Types
 import org.apache.flink.table.functions.AggregateFunction
+import org.apache.flink.table.legacy.api.Types
 
 /**
  * Accumulator for WeightedAvg.
@@ -1243,7 +1508,7 @@ class WeightedAvg extends AggregateFunction[JLong, CountAccumulator] {
 
 // 注册函数
 val tEnv: StreamTableEnvironment = ???
-tEnv.registerFunction("wAvg", new WeightedAvg())
+tEnv.createTemporarySystemFunction("wAvg", WeightedAvg.class)
 
 // 使用函数
 tEnv.sqlQuery("SELECT user, wAvg(points, level) AS avgPoints FROM userScores GROUP BY user")
@@ -1313,7 +1578,7 @@ public static class WeightedAvg extends AggregateFunction<Long, WeightedAvgAccum
 
 # 注册函数
 t_env = ...  # type: StreamTableEnvironment
-t_env.register_java_function("wAvg", "my.java.function.WeightedAvg")
+t_env.create_java_temporary_function("wAvg", "my.java.function.WeightedAvg")
 
 # 使用函数
 t_env.sql_query("SELECT user, wAvg(points, level) AS avgPoints FROM userScores GROUP BY user")
@@ -1331,7 +1596,7 @@ t_env.sql_query("SELECT user, wAvg(points, level) AS avgPoints FROM userScores G
 
 自定义表值聚合函数（UDTAGG）可以把一个表（一行或者多行，每行有一列或者多列）聚合成另一张表，结果中可以有多行多列。
 
-<img alt="UDAGG mechanism" src="/fig/udtagg-mechanism.png" width="80%">
+{{<img alt="UDAGG mechanism" src="/fig/udtagg-mechanism.png" width="80%">}}
 
 上图展示了一个表值聚合函数的例子。假设你有一个饮料的表，这个表有 3 列，分别是 `id`、`name` 和 `price`，一共有 5 行。假设你需要找到价格最高的两个饮料，类似于 `top2()` 表值聚合函数。你需要遍历所有 5 行数据，结果是有 2 行数据的一个表。
 
@@ -1433,7 +1698,7 @@ public abstract class TableAggregateFunction<T, ACC> extends UserDefinedAggregat
 
   /**
     * Merges a group of accumulator instances into one accumulator instance. This function must be
-    * implemented for datastream session window grouping aggregate and dataset grouping aggregate.
+    * implemented for datastream session window grouping aggregate and bounded grouping aggregate.
     *
     * @param accumulator  the accumulator which will keep the merged aggregate results. It should
     *                     be noted that the accumulator may contain the previous aggregated
@@ -1560,7 +1825,7 @@ abstract class TableAggregateFunction[T, ACC] extends UserDefinedAggregateFuncti
 
   /**
     * Merges a group of accumulator instances into one accumulator instance. This function must be
-    * implemented for datastream session window grouping aggregate and dataset grouping aggregate.
+    * implemented for datastream session window grouping aggregate and bounded grouping aggregate.
     *
     * @param accumulator  the accumulator which will keep the merged aggregate results. It should
     *                     be noted that the accumulator may contain the previous aggregated
@@ -1685,7 +1950,7 @@ public static class Top2 extends TableAggregateFunction<Tuple2<Integer, Integer>
 
 // 注册函数
 StreamTableEnvironment tEnv = ...
-tEnv.registerFunction("top2", new Top2());
+tEnv.createTemporarySystemFunction("top2", Top2.class);
 
 // 初始化表
 Table tab = ...;
@@ -1700,8 +1965,8 @@ tab.groupBy("key")
 {{< tab "Scala" >}}
 ```scala
 import java.lang.{Integer => JInteger}
-import org.apache.flink.table.api.Types
 import org.apache.flink.table.functions.TableAggregateFunction
+import org.apache.flink.table.legacy.api.Types
 
 /**
  * Accumulator for top2.
@@ -1766,7 +2031,10 @@ tab
 {{< /tabs >}}
 
 
-下面的例子展示了如何使用 `emitUpdateWithRetract` 方法来只发送更新的数据。为了只发送更新的结果，accumulator 保存了上一次的最大的2个值，也保存了当前最大的2个值。注意：如果 TopN 中的 n 非常大，这种既保存上次的结果，也保存当前的结果的方式不太高效。一种解决这种问题的方式是把输入数据直接存储到 `accumulator` 中，然后在调用 `emitUpdateWithRetract` 方法时再进行计算。
+下面的例子展示了如何使用 `emitUpdateWithRetract` 方法来只发送更新的数据。为了只发送更新的结果，accumulator 保存了上一次的最大的2个值，也保存了当前最大的2个值。
+{{< hint info >}}
+注意：请不要在 `emitUpdateWithRetract` 方法中更新 accumulator，因为在调用 `function#emitUpdateWithRetract` 之后，`GroupTableAggFunction` 不会重新调用 `function#getAccumulators` 来将最新的 accumulator 更新到状态中。
+{{< /hint >}}
 
 {{< tabs "e0d841fe-8d95-4706-9e19-e76141171966" >}}
 {{< tab "Java" >}}
@@ -1797,6 +2065,8 @@ public static class Top2 extends TableAggregateFunction<Tuple2<Integer, Integer>
     }
 
     public void accumulate(Top2Accum acc, Integer v) {
+        acc.oldFirst = acc.first;
+        acc.oldSecond = acc.second;
         if (v > acc.first) {
             acc.second = acc.first;
             acc.first = v;
@@ -1812,7 +2082,6 @@ public static class Top2 extends TableAggregateFunction<Tuple2<Integer, Integer>
                 out.retract(Tuple2.of(acc.oldFirst, 1));
             }
             out.collect(Tuple2.of(acc.first, 1));
-            acc.oldFirst = acc.first;
         }
 
         if (!acc.second.equals(acc.oldSecond)) {
@@ -1821,14 +2090,13 @@ public static class Top2 extends TableAggregateFunction<Tuple2<Integer, Integer>
                 out.retract(Tuple2.of(acc.oldSecond, 2));
             }
             out.collect(Tuple2.of(acc.second, 2));
-            acc.oldSecond = acc.second;
         }
     }
 }
 
 // 注册函数
 StreamTableEnvironment tEnv = ...
-tEnv.registerFunction("top2", new Top2());
+tEnv.createTemporarySystemFunction("top2", Top2.class);
 
 // 初始化表
 Table tab = ...;
@@ -1843,8 +2111,8 @@ tab.groupBy("key")
 {{< tab "Scala" >}}
 ```scala
 import java.lang.{Integer => JInteger}
-import org.apache.flink.table.api.Types
 import org.apache.flink.table.functions.TableAggregateFunction
+import org.apache.flink.table.legacy.api.Types
 
 /**
  * Accumulator for top2.
@@ -1871,6 +2139,8 @@ class Top2 extends TableAggregateFunction[JTuple2[JInteger, JInteger], Top2Accum
   }
 
   def accumulate(acc: Top2Accum, v: Int) {
+    acc.oldFirst = acc.first
+    acc.oldSecond = acc.second
     if (v > acc.first) {
       acc.second = acc.first
       acc.first = v
@@ -1889,7 +2159,6 @@ class Top2 extends TableAggregateFunction[JTuple2[JInteger, JInteger], Top2Accum
         out.retract(JTuple2.of(acc.oldFirst, 1))
       }
       out.collect(JTuple2.of(acc.first, 1))
-      acc.oldFirst = acc.first
     }
     if (acc.second != acc.oldSecond) {
       // if there is an update, retract old value then emit new value.
@@ -1897,7 +2166,6 @@ class Top2 extends TableAggregateFunction[JTuple2[JInteger, JInteger], Top2Accum
         out.retract(JTuple2.of(acc.oldSecond, 2))
       }
       out.collect(JTuple2.of(acc.second, 2))
-      acc.oldSecond = acc.second
     }
   }
 }

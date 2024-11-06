@@ -35,7 +35,8 @@ org.apache.flink.sql.parser.impl.ParseException: Encountered "." at line 1, colu
 Was expecting one of:
     <EOF>
     "WITH" ...
-
+    "COMMENT" ...
+    ";" ...
 !error
 
 create database my.db;
@@ -48,7 +49,7 @@ org.apache.flink.table.api.ValidationException: Catalog my does not exist
 # ==========================================================================
 
 create catalog c1 with ('type'='generic_in_memory');
-[INFO] Catalog has been created.
+[INFO] Execute statement succeeded.
 !info
 
 show catalogs;
@@ -61,6 +62,42 @@ show catalogs;
 2 rows in set
 !ok
 
+show catalogs like '%c1';
++--------------+
+| catalog name |
++--------------+
+|           c1 |
++--------------+
+1 row in set
+!ok
+
+show catalogs not like 'default%';
++--------------+
+| catalog name |
++--------------+
+|           c1 |
++--------------+
+1 row in set
+!ok
+
+show catalogs ilike '%c1';
++--------------+
+| catalog name |
++--------------+
+|           c1 |
++--------------+
+1 row in set
+!ok
+
+show catalogs not ilike 'default%';
++--------------+
+| catalog name |
++--------------+
+|           c1 |
++--------------+
+1 row in set
+!ok
+
 show current catalog;
 +----------------------+
 | current catalog name |
@@ -71,7 +108,7 @@ show current catalog;
 !ok
 
 use catalog c1;
-[INFO] Catalog changed.
+[INFO] Execute statement succeeded.
 !info
 
 show current catalog;
@@ -84,26 +121,281 @@ show current catalog;
 !ok
 
 drop catalog default_catalog;
-[INFO] Catalog has been removed.
+[INFO] Execute statement succeeded.
 !info
+
+drop catalog c1;
+[ERROR] Could not execute SQL statement. Reason:
+org.apache.flink.table.catalog.exceptions.CatalogException: Cannot drop a catalog which is currently in use.
+!error
+
+create catalog cat_comment comment 'hello ''catalog''' WITH ('type'='generic_in_memory', 'default-database'='db');
+[INFO] Execute statement succeeded.
+!info
+
+show create catalog cat_comment;
++--------------------------------------------------------------------------------------------------------------------------------+
+|                                                                                                                         result |
++--------------------------------------------------------------------------------------------------------------------------------+
+| CREATE CATALOG `cat_comment`
+COMMENT 'hello ''catalog'''
+WITH (
+  'default-database' = 'db',
+  'type' = 'generic_in_memory'
+)
+ |
++--------------------------------------------------------------------------------------------------------------------------------+
+1 row in set
+!ok
+
+describe catalog cat_comment;
++-----------+-------------------+
+| info name |        info value |
++-----------+-------------------+
+|      name |       cat_comment |
+|      type | generic_in_memory |
+|   comment |   hello 'catalog' |
++-----------+-------------------+
+3 rows in set
+!ok
+
+describe catalog extended cat_comment;
++-------------------------+-------------------+
+|               info name |        info value |
++-------------------------+-------------------+
+|                    name |       cat_comment |
+|                    type | generic_in_memory |
+|                 comment |   hello 'catalog' |
+| option:default-database |                db |
++-------------------------+-------------------+
+4 rows in set
+!ok
+
+create catalog if not exists cat_comment comment 'hello' with ('type' = 'generic_in_memory');
+[INFO] Execute statement succeeded.
+!info
+
+create catalog cat_comment comment 'hello2' with ('type' = 'generic_in_memory');
+[ERROR] Could not execute SQL statement. Reason:
+org.apache.flink.table.catalog.exceptions.CatalogException: Catalog cat_comment already exists.
+!error
+
+create catalog cat2 WITH ('type'='generic_in_memory', 'default-database'='db');
+[INFO] Execute statement succeeded.
+!info
+
+show create catalog cat2;
++---------------------------------------------------------------------------------------------+
+|                                                                                      result |
++---------------------------------------------------------------------------------------------+
+| CREATE CATALOG `cat2`
+WITH (
+  'default-database' = 'db',
+  'type' = 'generic_in_memory'
+)
+ |
++---------------------------------------------------------------------------------------------+
+1 row in set
+!ok
+
+describe catalog cat2;
++-----------+-------------------+
+| info name |        info value |
++-----------+-------------------+
+|      name |              cat2 |
+|      type | generic_in_memory |
+|   comment |                   |
++-----------+-------------------+
+3 rows in set
+!ok
+
+describe catalog extended cat2;
++-------------------------+-------------------+
+|               info name |        info value |
++-------------------------+-------------------+
+|                    name |              cat2 |
+|                    type | generic_in_memory |
+|                 comment |                   |
+| option:default-database |                db |
++-------------------------+-------------------+
+4 rows in set
+!ok
+
+desc catalog cat2;
++-----------+-------------------+
+| info name |        info value |
++-----------+-------------------+
+|      name |              cat2 |
+|      type | generic_in_memory |
+|   comment |                   |
++-----------+-------------------+
+3 rows in set
+!ok
+
+desc catalog extended cat2;
++-------------------------+-------------------+
+|               info name |        info value |
++-------------------------+-------------------+
+|                    name |              cat2 |
+|                    type | generic_in_memory |
+|                 comment |                   |
+| option:default-database |                db |
++-------------------------+-------------------+
+4 rows in set
+!ok
+
+alter catalog cat2 set ('default-database'='db_new');
+[INFO] Execute statement succeeded.
+!info
+
+desc catalog extended cat2;
++-------------------------+-------------------+
+|               info name |        info value |
++-------------------------+-------------------+
+|                    name |              cat2 |
+|                    type | generic_in_memory |
+|                 comment |                   |
+| option:default-database |            db_new |
++-------------------------+-------------------+
+4 rows in set
+!ok
+
+alter catalog cat2 reset ('default-database', 'k1');
+[INFO] Execute statement succeeded.
+!info
+
+desc catalog extended cat2;
++-----------+-------------------+
+| info name |        info value |
++-----------+-------------------+
+|      name |              cat2 |
+|      type | generic_in_memory |
+|   comment |                   |
++-----------+-------------------+
+3 rows in set
+!ok
+
+alter catalog cat2 reset ('type');
+[ERROR] Could not execute SQL statement. Reason:
+org.apache.flink.table.api.ValidationException: ALTER CATALOG RESET does not support changing 'type'
+!error
+
+alter catalog cat2 reset ();
+[ERROR] Could not execute SQL statement. Reason:
+org.apache.flink.table.api.ValidationException: ALTER CATALOG RESET does not support empty key
+!error
+
+alter catalog cat2 comment 'comment for catalog ''cat2''';
+[INFO] Execute statement succeeded.
+!info
+
+desc catalog extended cat2;
++-----------+----------------------------+
+| info name |                 info value |
++-----------+----------------------------+
+|      name |                       cat2 |
+|      type |          generic_in_memory |
+|   comment | comment for catalog 'cat2' |
++-----------+----------------------------+
+3 rows in set
+!ok
+
+alter catalog cat2 comment '';
+[INFO] Execute statement succeeded.
+!info
+
+desc catalog extended cat2;
++-----------+-------------------+
+| info name |        info value |
++-----------+-------------------+
+|      name |              cat2 |
+|      type | generic_in_memory |
+|   comment |                   |
++-----------+-------------------+
+3 rows in set
+!ok
 
 # ==========================================================================
 # test database
 # ==========================================================================
 
 create database db1;
-[INFO] Database has been created.
+[INFO] Execute statement succeeded.
 !info
 
 show databases;
 +---------------+
 | database name |
 +---------------+
-|       default |
 |           db1 |
+|       default |
 +---------------+
 2 rows in set
 !ok
+
+create database db2;
+[INFO] Execute statement succeeded.
+!info
+
+show databases like 'db%';
++---------------+
+| database name |
++---------------+
+|           db1 |
+|           db2 |
++---------------+
+2 rows in set
+!ok
+
+show databases ilike 'db%';
++---------------+
+| database name |
++---------------+
+|           db1 |
+|           db2 |
++---------------+
+2 rows in set
+!ok
+
+show databases like 'db1%';
++---------------+
+| database name |
++---------------+
+|           db1 |
++---------------+
+1 row in set
+!ok
+
+show databases ilike 'db1%';
++---------------+
+| database name |
++---------------+
+|           db1 |
++---------------+
+1 row in set
+!ok
+
+show databases like 'db2%';
++---------------+
+| database name |
++---------------+
+|           db2 |
++---------------+
+1 row in set
+!ok
+
+show databases ilike 'db2%';
++---------------+
+| database name |
++---------------+
+|           db2 |
++---------------+
+1 row in set
+!ok
+
+drop database db2;
+[INFO] Execute statement succeeded.
+!info
 
 show current database;
 +-----------------------+
@@ -115,7 +407,7 @@ show current database;
 !ok
 
 use db1;
-[INFO] Database changed.
+[INFO] Execute statement succeeded.
 !info
 
 show current database;
@@ -128,11 +420,11 @@ show current database;
 !ok
 
 create database db2 comment 'db2_comment' with ('k1' = 'v1');
-[INFO] Database has been created.
+[INFO] Execute statement succeeded.
 !info
 
 alter database db2 set ('k1' = 'a', 'k2' = 'b');
-[INFO] Alter database succeeded!
+[INFO] Execute statement succeeded.
 !info
 
 # TODO: show database properties when we support DESCRIBE DATABSE
@@ -141,23 +433,118 @@ show databases;
 +---------------+
 | database name |
 +---------------+
-|       default |
 |           db1 |
 |           db2 |
+|       default |
 +---------------+
 3 rows in set
 !ok
 
+create catalog `c0` with ('type'='generic_in_memory');
+[INFO] Execute statement succeeded.
+!info
+
+create database c0.db0a;
+[INFO] Execute statement succeeded.
+!info
+
+create database c0.db0b;
+[INFO] Execute statement succeeded.
+!info
+
+show databases from c0;
++---------------+
+| database name |
++---------------+
+|          db0a |
+|          db0b |
+|       default |
++---------------+
+3 rows in set
+!ok
+
+show databases from c0 like 'db0a%';
++---------------+
+| database name |
++---------------+
+|          db0a |
++---------------+
+1 row in set
+!ok
+
+show databases from c0 ilike 'db0a%';
++---------------+
+| database name |
++---------------+
+|          db0a |
++---------------+
+1 row in set
+!ok
+
+show databases from c0 not like 'db0a%';
++---------------+
+| database name |
++---------------+
+|          db0b |
+|       default |
++---------------+
+2 rows in set
+!ok
+
+show databases from c0 not ilike 'db0a%';
++---------------+
+| database name |
++---------------+
+|          db0b |
+|       default |
++---------------+
+2 rows in set
+!ok
+
+show databases from c0 like 'db%';
++---------------+
+| database name |
++---------------+
+|          db0a |
+|          db0b |
++---------------+
+2 rows in set
+!ok
+
+show databases from c0 ilike 'db%';
++---------------+
+| database name |
++---------------+
+|          db0a |
+|          db0b |
++---------------+
+2 rows in set
+!ok
+
+show databases in c0.t;
+[ERROR] Could not execute SQL statement. Reason:
+org.apache.flink.sql.parser.impl.ParseException: Show databases from/in identifier [ c0.t ] format error, catalog must be a single part identifier.
+!error
+
+drop catalog `c0`;
+[INFO] Execute statement succeeded.
+!info
+
+show databases from c0;
+[ERROR] Could not execute SQL statement. Reason:
+org.apache.flink.table.api.ValidationException: Catalog c0 does not exist
+!error
+
 drop database if exists db2;
-[INFO] Database has been removed.
+[INFO] Execute statement succeeded.
 !info
 
 show databases;
 +---------------+
 | database name |
 +---------------+
-|       default |
 |           db1 |
+|       default |
 +---------------+
 2 rows in set
 !ok
@@ -167,136 +554,61 @@ show databases;
 # ==========================================================================
 
 create catalog `mod` with ('type'='generic_in_memory');
-[INFO] Catalog has been created.
+[INFO] Execute statement succeeded.
 !info
 
 use catalog `mod`;
-[INFO] Catalog changed.
+[INFO] Execute statement succeeded.
 !info
 
 use `default`;
-[INFO] Database changed.
+[INFO] Execute statement succeeded.
 !info
 
 drop database `default`;
-[INFO] Database has been removed.
+[ERROR] Could not execute SQL statement. Reason:
+org.apache.flink.table.api.ValidationException: Cannot drop a database which is currently in use.
+!error
+
+drop catalog `mod`;
+[ERROR] Could not execute SQL statement. Reason:
+org.apache.flink.table.catalog.exceptions.CatalogException: Cannot drop a catalog which is currently in use.
+!error
+
+use catalog `c1`;
+[INFO] Execute statement succeeded.
 !info
 
 drop catalog `mod`;
-[INFO] Catalog has been removed.
+[INFO] Execute statement succeeded.
 !info
 
-# ==========================================================================
-# test hive catalog
-# ==========================================================================
-
-create catalog hivecatalog with (
- 'type' = 'hive',
- 'test' = 'test',  -- this makes sure we use TestHiveCatalogFactory
- 'hive-version' = '2.3.4'
-);
-[INFO] Catalog has been created.
+SET 'execution.runtime-mode' = 'batch';
+[INFO] Execute statement succeeded.
 !info
 
-use catalog hivecatalog;
-[INFO] Catalog changed.
+SET 'sql-client.execution.result-mode' = 'tableau';
+[INFO] Execute statement succeeded.
 !info
-
-show current catalog;
-+----------------------+
-| current catalog name |
-+----------------------+
-|          hivecatalog |
-+----------------------+
-1 row in set
-!ok
-
-show databases;
-+--------------------------+
-|            database name |
-+--------------------------+
-| additional_test_database |
-|                  default |
-+--------------------------+
-2 rows in set
-!ok
-
-show tables;
-+-------------------+
-|        table name |
-+-------------------+
-| param_types_table |
-+-------------------+
-1 row in set
-!ok
-
-use additional_test_database;
-[INFO] Database changed.
-!info
-
-show tables;
-+------------+
-| table name |
-+------------+
-| test_table |
-+------------+
-1 row in set
-!ok
-
-show current database;
-+--------------------------+
-|    current database name |
-+--------------------------+
-| additional_test_database |
-+--------------------------+
-1 row in set
-!ok
-
-# ==========================================================================
-# test hive table with parameterized types
-# ==========================================================================
-
-describe hivecatalog.`default`.param_types_table;
-+------+-----------------+------+-----+--------+-----------+
-| name |            type | null | key | extras | watermark |
-+------+-----------------+------+-----+--------+-----------+
-|  dec | DECIMAL(10, 10) | true |     |        |           |
-|   ch |         CHAR(5) | true |     |        |           |
-|  vch |     VARCHAR(15) | true |     |        |           |
-+------+-----------------+------+-----+--------+-----------+
-3 rows in set
-!ok
-
-SET execution.runtime-mode = batch;
-[INFO] Session property has been set.
-!info
-
-SET sql-client.execution.result-mode = tableau;
-[INFO] Session property has been set.
-!info
-
-# test the SELECT query can run successfully, even result is empty
-select * from hivecatalog.`default`.param_types_table;
-+--------------+----------------------+----------------------+
-|          dec |                   ch |                  vch |
-+--------------+----------------------+----------------------+
-Received a total of 0 row
-!ok
 
 # ==========================================================================
 # test create/drop table with catalog
 # ==========================================================================
 
-use catalog hivecatalog;
-[INFO] Catalog changed.
+create catalog c2 with ('type'='generic_in_memory');
+[INFO] Execute statement succeeded.
 !info
 
-create table MyTable1 (a int, b string);
-[INFO] Table has been created.
+use catalog `c2`;
+[INFO] Execute statement succeeded.
 !info
 
-create table MyTable2 (a int, b string);
-[INFO] Table has been created.
+create table MyTable1 (a int, b string) with ('connector' = 'values');
+[INFO] Execute statement succeeded.
+!info
+
+create table MyTable2 (a int, b string) with ('connector' = 'values');
+[INFO] Execute statement succeeded.
 !info
 
 # hive catalog is case-insensitive
@@ -304,28 +616,57 @@ show tables;
 +------------+
 | table name |
 +------------+
-|   mytable1 |
-|   mytable2 |
-| test_table |
+|   MyTable1 |
+|   MyTable2 |
 +------------+
-3 rows in set
+2 rows in set
+!ok
+
+show views;
+Empty set
+!ok
+
+create view MyView1 as select 1 + 1;
+[INFO] Execute statement succeeded.
+!info
+
+create view MyView2 as select 1 + 1;
+[INFO] Execute statement succeeded.
+!info
+
+show views;
++-----------+
+| view name |
++-----------+
+|   MyView1 |
+|   MyView2 |
++-----------+
+2 rows in set
 !ok
 
 # test create with full qualified name
-create table c1.db1.MyTable3 (a int, b string);
-[INFO] Table has been created.
+create table c1.db1.MyTable3 (a int, b string) with ('connector' = 'values');
+[INFO] Execute statement succeeded.
 !info
 
-create table c1.db1.MyTable4 (a int, b string);
-[INFO] Table has been created.
+create table c1.db1.MyTable4 (a int, b string) with ('connector' = 'values');
+[INFO] Execute statement succeeded.
+!info
+
+create view c1.db1.MyView3 as select 1 + 1;
+[INFO] Execute statement succeeded.
+!info
+
+create view c1.db1.MyView4 as select 1 + 1;
+[INFO] Execute statement succeeded.
 !info
 
 use catalog c1;
-[INFO] Catalog changed.
+[INFO] Execute statement succeeded.
 !info
 
 use db1;
-[INFO] Database changed.
+[INFO] Execute statement succeeded.
 !info
 
 show tables;
@@ -334,21 +675,41 @@ show tables;
 +------------+
 |   MyTable3 |
 |   MyTable4 |
+|    MyView3 |
+|    MyView4 |
 +------------+
+4 rows in set
+!ok
+
+show views;
++-----------+
+| view name |
++-----------+
+|   MyView3 |
+|   MyView4 |
++-----------+
 2 rows in set
 !ok
 
 # test create with database name
-create table `default`.MyTable5 (a int, b string);
-[INFO] Table has been created.
+create table `default`.MyTable5 (a int, b string) with ('connector' = 'values');
+[INFO] Execute statement succeeded.
 !info
 
-create table `default`.MyTable6 (a int, b string);
-[INFO] Table has been created.
+create table `default`.MyTable6 (a int, b string) with ('connector' = 'values');
+[INFO] Execute statement succeeded.
+!info
+
+create view `default`.MyView5 as select 1 + 1;
+[INFO] Execute statement succeeded.
+!info
+
+create view `default`.MyView6 as select 1 + 1;
+[INFO] Execute statement succeeded.
 !info
 
 use `default`;
-[INFO] Database changed.
+[INFO] Execute statement succeeded.
 !info
 
 show tables;
@@ -357,16 +718,32 @@ show tables;
 +------------+
 |   MyTable5 |
 |   MyTable6 |
+|    MyView5 |
+|    MyView6 |
 +------------+
+4 rows in set
+!ok
+
+show views;
++-----------+
+| view name |
++-----------+
+|   MyView5 |
+|   MyView6 |
++-----------+
 2 rows in set
 !ok
 
 drop table db1.MyTable3;
-[INFO] Table has been removed.
+[INFO] Execute statement succeeded.
+!info
+
+drop view db1.MyView3;
+[INFO] Execute statement succeeded.
 !info
 
 use db1;
-[INFO] Database changed.
+[INFO] Execute statement succeeded.
 !info
 
 show tables;
@@ -374,16 +751,30 @@ show tables;
 | table name |
 +------------+
 |   MyTable4 |
+|    MyView4 |
 +------------+
+2 rows in set
+!ok
+
+show views;
++-----------+
+| view name |
++-----------+
+|   MyView4 |
++-----------+
 1 row in set
 !ok
 
 drop table c1.`default`.MyTable6;
-[INFO] Table has been removed.
+[INFO] Execute statement succeeded.
+!info
+
+drop view c1.`default`.MyView6;
+[INFO] Execute statement succeeded.
 !info
 
 use `default`;
-[INFO] Database changed.
+[INFO] Execute statement succeeded.
 !info
 
 show tables;
@@ -391,7 +782,17 @@ show tables;
 | table name |
 +------------+
 |   MyTable5 |
+|    MyView5 |
 +------------+
+2 rows in set
+!ok
+
+show views;
++-----------+
+| view name |
++-----------+
+|   MyView5 |
++-----------+
 1 row in set
 !ok
 
@@ -399,12 +800,12 @@ show tables;
 # test configuration is changed (trigger new ExecutionContext)
 # ==========================================================================
 
-SET sql-client.execution.result-mode = changelog;
-[INFO] Session property has been set.
+SET 'sql-client.execution.result-mode' = 'changelog';
+[INFO] Execute statement succeeded.
 !info
 
-create table MyTable7 (a int, b string);
-[INFO] Table has been created.
+create table MyTable7 (a int, b string) with ('connector' = 'values');
+[INFO] Execute statement succeeded.
 !info
 
 show tables;
@@ -413,16 +814,17 @@ show tables;
 +------------+
 |   MyTable5 |
 |   MyTable7 |
+|    MyView5 |
 +------------+
-2 rows in set
+3 rows in set
 !ok
 
 reset;
-[INFO] All session properties have been set to their default values.
+[INFO] Execute statement succeeded.
 !info
 
 drop table MyTable5;
-[INFO] Table has been removed.
+[INFO] Execute statement succeeded.
 !info
 
 show tables;
@@ -430,6 +832,123 @@ show tables;
 | table name |
 +------------+
 |   MyTable7 |
+|    MyView5 |
 +------------+
+2 rows in set
+!ok
+
+# ==========================================================================
+# test enhanced show tables and views
+# ==========================================================================
+
+create catalog catalog1 with ('type'='generic_in_memory');
+[INFO] Execute statement succeeded.
+!info
+
+create database catalog1.db1;
+[INFO] Execute statement succeeded.
+!info
+
+create table catalog1.db1.person (a int, b string) with ('connector' = 'datagen');
+[INFO] Execute statement succeeded.
+!info
+
+create table catalog1.db1.dim (a int, b string) with ('connector' = 'datagen');
+[INFO] Execute statement succeeded.
+!info
+
+create table catalog1.db1.address (a int, b string) with ('connector' = 'datagen');
+[INFO] Execute statement succeeded.
+!info
+
+create view catalog1.db1.v_person as select * from catalog1.db1.person;
+[INFO] Execute statement succeeded.
+!info
+
+create view catalog1.db1.v_address comment 'view comment' as select * from catalog1.db1.address;
+[INFO] Execute statement succeeded.
+!info
+
+show tables from catalog1.db1;
++------------+
+| table name |
++------------+
+|    address |
+|        dim |
+|     person |
+|  v_address |
+|   v_person |
++------------+
+5 rows in set
+!ok
+
+show views from catalog1.db1;
++-----------+
+| view name |
++-----------+
+| v_address |
+|  v_person |
++-----------+
+2 rows in set
+!ok
+
+show tables from catalog1.db1 like '%person%';
++------------+
+| table name |
++------------+
+|     person |
+|   v_person |
++------------+
+2 rows in set
+!ok
+
+show views from catalog1.db1 like '%person%';
++-----------+
+| view name |
++-----------+
+|  v_person |
++-----------+
+1 row in set
+!ok
+
+show tables in catalog1.db1 not like '%person%';
++------------+
+| table name |
++------------+
+|    address |
+|        dim |
+|  v_address |
++------------+
+3 rows in set
+!ok
+
+show views in catalog1.db1 not like '%person%';
++-----------+
+| view name |
++-----------+
+| v_address |
++-----------+
+1 row in set
+!ok
+
+use catalog catalog1;
+[INFO] Execute statement succeeded.
+!info
+
+show tables from db1 like 'p_r%';
++------------+
+| table name |
++------------+
+|     person |
++------------+
+1 row in set
+!ok
+
+show views from db1 like '%p_r%';
++-----------+
+| view name |
++-----------+
+|  v_person |
++-----------+
 1 row in set
 !ok

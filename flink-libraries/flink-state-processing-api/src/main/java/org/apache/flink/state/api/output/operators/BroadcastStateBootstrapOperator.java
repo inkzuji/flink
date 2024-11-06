@@ -74,11 +74,11 @@ public class BroadcastStateBootstrapOperator<IN>
         TaggedOperatorSubtaskState state =
                 SnapshotUtils.snapshot(
                         this,
-                        getRuntimeContext().getIndexOfThisSubtask(),
+                        getRuntimeContext().getTaskInfo().getIndexOfThisSubtask(),
                         timestamp,
                         getContainingTask().getConfiguration().isExactlyOnceCheckpointMode(),
                         getContainingTask().getConfiguration().isUnalignedCheckpointsEnabled(),
-                        getContainingTask().getCheckpointStorage(),
+                        getContainingTask().getConfiguration().getConfiguration(),
                         savepointPath);
 
         output.collect(new StreamRecord<>(state));

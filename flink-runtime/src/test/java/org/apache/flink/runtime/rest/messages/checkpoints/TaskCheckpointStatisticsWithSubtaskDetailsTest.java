@@ -20,12 +20,16 @@ package org.apache.flink.runtime.rest.messages.checkpoints;
 
 import org.apache.flink.runtime.checkpoint.CheckpointStatsStatus;
 import org.apache.flink.runtime.rest.messages.RestResponseMarshallingTestBase;
+import org.apache.flink.testutils.junit.extensions.parameterized.NoOpTestExtension;
+
+import org.junit.jupiter.api.extension.ExtendWith;
 
 import java.util.ArrayList;
 import java.util.List;
 
 /** Tests (un)marshalling of {@link TaskCheckpointStatisticsWithSubtaskDetails}. */
-public class TaskCheckpointStatisticsWithSubtaskDetailsTest
+@ExtendWith(NoOpTestExtension.class)
+class TaskCheckpointStatisticsWithSubtaskDetailsTest
         extends RestResponseMarshallingTestBase<TaskCheckpointStatisticsWithSubtaskDetails> {
 
     @Override
@@ -38,17 +42,18 @@ public class TaskCheckpointStatisticsWithSubtaskDetailsTest
             throws Exception {
         final TaskCheckpointStatisticsWithSubtaskDetails.Summary summary =
                 new TaskCheckpointStatisticsWithSubtaskDetails.Summary(
-                        new MinMaxAvgStatistics(1L, 2L, 3L),
-                        new MinMaxAvgStatistics(1L, 2L, 3L),
+                        new StatsSummaryDto(1L, 2L, 3L, 0, 0, 0, 0, 0),
+                        new StatsSummaryDto(1L, 2L, 3L, 0, 0, 0, 0, 0),
+                        new StatsSummaryDto(1L, 2L, 3L, 0, 0, 0, 0, 0),
                         new TaskCheckpointStatisticsWithSubtaskDetails.CheckpointDuration(
-                                new MinMaxAvgStatistics(1L, 2L, 3L),
-                                new MinMaxAvgStatistics(1L, 2L, 3L)),
+                                new StatsSummaryDto(1L, 2L, 3L, 0, 0, 0, 0, 0),
+                                new StatsSummaryDto(1L, 2L, 3L, 0, 0, 0, 0, 0)),
                         new TaskCheckpointStatisticsWithSubtaskDetails.CheckpointAlignment(
-                                new MinMaxAvgStatistics(1L, 2L, 3L),
-                                new MinMaxAvgStatistics(1L, 2L, 3L),
-                                new MinMaxAvgStatistics(1L, 2L, 3L),
-                                new MinMaxAvgStatistics(1L, 2L, 3L)),
-                        new MinMaxAvgStatistics(1L, 2L, 3L));
+                                new StatsSummaryDto(1L, 2L, 3L, 0, 0, 0, 0, 0),
+                                new StatsSummaryDto(1L, 2L, 3L, 0, 0, 0, 0, 0),
+                                new StatsSummaryDto(1L, 2L, 3L, 0, 0, 0, 0, 0),
+                                new StatsSummaryDto(1L, 2L, 3L, 0, 0, 0, 0, 0)),
+                        new StatsSummaryDto(1L, 2L, 3L, 0, 0, 0, 0, 0));
 
         List<SubtaskCheckpointStatistics> subtaskCheckpointStatistics = new ArrayList<>(2);
 
@@ -59,6 +64,7 @@ public class TaskCheckpointStatisticsWithSubtaskDetailsTest
                         1,
                         4L,
                         13L,
+                        1337L,
                         1337L,
                         new SubtaskCheckpointStatistics.CompletedSubtaskCheckpointStatistics
                                 .CheckpointDuration(1L, 2L),
@@ -72,6 +78,7 @@ public class TaskCheckpointStatisticsWithSubtaskDetailsTest
                 4L,
                 CheckpointStatsStatus.COMPLETED,
                 4L,
+                1337L,
                 1337L,
                 1L,
                 2L,

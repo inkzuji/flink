@@ -18,6 +18,10 @@
 
 package org.apache.flink.metrics;
 
+import org.apache.flink.annotation.Experimental;
+import org.apache.flink.annotation.Public;
+import org.apache.flink.traces.SpanBuilder;
+
 import java.util.Map;
 
 /**
@@ -28,7 +32,15 @@ import java.util.Map;
  *
  * <p>A MetricGroup is uniquely identified by it's place in the hierarchy and name.
  */
+@Public
 public interface MetricGroup {
+
+    // ------------------------------------------------------------------------
+    //  Spans
+    // ------------------------------------------------------------------------
+
+    @Experimental
+    default void addSpan(SpanBuilder spanBuilder) {}
 
     // ------------------------------------------------------------------------
     //  Metrics
@@ -40,7 +52,9 @@ public interface MetricGroup {
      * @param name name of the counter
      * @return the created counter
      */
-    Counter counter(int name);
+    default Counter counter(int name) {
+        return counter(String.valueOf(name));
+    }
 
     /**
      * Creates and registers a new {@link org.apache.flink.metrics.Counter} with Flink.
@@ -58,7 +72,9 @@ public interface MetricGroup {
      * @param <C> counter type
      * @return the given counter
      */
-    <C extends Counter> C counter(int name, C counter);
+    default <C extends Counter> C counter(int name, C counter) {
+        return counter(String.valueOf(name), counter);
+    }
 
     /**
      * Registers a {@link org.apache.flink.metrics.Counter} with Flink.
@@ -78,7 +94,9 @@ public interface MetricGroup {
      * @param <T> return type of the gauge
      * @return the given gauge
      */
-    <T, G extends Gauge<T>> G gauge(int name, G gauge);
+    default <T, G extends Gauge<T>> G gauge(int name, G gauge) {
+        return gauge(String.valueOf(name), gauge);
+    }
 
     /**
      * Registers a new {@link org.apache.flink.metrics.Gauge} with Flink.
@@ -108,7 +126,9 @@ public interface MetricGroup {
      * @param <H> histogram type
      * @return the registered histogram
      */
-    <H extends Histogram> H histogram(int name, H histogram);
+    default <H extends Histogram> H histogram(int name, H histogram) {
+        return histogram(String.valueOf(name), histogram);
+    }
 
     /**
      * Registers a new {@link Meter} with Flink.
@@ -128,7 +148,9 @@ public interface MetricGroup {
      * @param <M> meter type
      * @return the registered meter
      */
-    <M extends Meter> M meter(int name, M meter);
+    default <M extends Meter> M meter(int name, M meter) {
+        return meter(String.valueOf(name), meter);
+    }
 
     // ------------------------------------------------------------------------
     // Groups
@@ -140,7 +162,9 @@ public interface MetricGroup {
      * @param name name of the group
      * @return the created group
      */
-    MetricGroup addGroup(int name);
+    default MetricGroup addGroup(int name) {
+        return addGroup(String.valueOf(name));
+    }
 
     /**
      * Creates a new MetricGroup and adds it to this groups sub-groups.

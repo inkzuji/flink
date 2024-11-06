@@ -49,7 +49,7 @@ Internal connectivity includes:
   - The data plane: The connections between TaskManagers to exchange data during shuffles, broadcasts, redistribution, etc.
   - The Blob Service (distribution of libraries and other artifacts).
 
-All internal connections are SSL authenticated and encrypted. The connections use **mutual authentication**, meaning both server
+All internal connections are SSL authenticated and encrypted. The connections use **mutual authentication** (mTLS), meaning both server
 and client side of each connection need to present the certificate to each other. The certificate acts effectively as a shared
 secret when a dedicated CA is used to exclusively sign an internal cert.
 The certificate for internal communication is not needed by any other party to interact with Flink, and can be simply
@@ -87,12 +87,6 @@ Examples for proxies that Flink users have deployed are [Envoy Proxy](https://ww
 
 The rationale behind delegating authentication to a proxy is that such proxies offer a wide variety of authentication options and thus better integration into existing infrastructures.
 
-
-### Queryable State
-
-Connections to the queryable state endpoints is currently not authenticated or encrypted.
-
-
 ## Configuring SSL
 
 SSL can be enabled separately for *internal* and *external* connectivity:
@@ -107,7 +101,7 @@ When `security.ssl.internal.enabled` is set to `true`, you can set the following
 
   - `taskmanager.data.ssl.enabled`: Data communication between TaskManagers
   - `blob.service.ssl.enabled`: Transport of BLOBs from JobManager to TaskManager
-  - `akka.ssl.enabled`: Akka-based RPC connections between JobManager / TaskManager / ResourceManager
+  - `pekko.ssl.enabled`: Pekko-based RPC connections between JobManager / TaskManager / ResourceManager
 
 ### Keystores and Truststores
 
@@ -119,7 +113,7 @@ need to be set up such that the truststore trusts the keystore's certificate.
 
 Because internal communication is mutually authenticated between server and client side, keystore and truststore typically refer to a dedicated
 certificate that acts as a shared secret. In such a setup, the certificate can use wild card hostnames or addresses.
-WHen using self-signed certificates, it is even possible to use the same file as keystore and truststore.
+When using self-signed certificates, it is even possible to use the same file as keystore and truststore.
 
 ```yaml
 security.ssl.internal.keystore: /path/to/file.keystore
@@ -177,12 +171,12 @@ If these cipher suites are not supported on your setup, you will see that Flink 
 
 ## Creating and Deploying Keystores and Truststores
 
-Keys, Certificates, and the Keystores and Truststores can be generatedd using the [keytool utility](https://docs.oracle.com/javase/8/docs/technotes/tools/unix/keytool.html).
+Keys, Certificates, and the Keystores and Truststores can be generated using the [keytool utility](https://docs.oracle.com/javase/8/docs/technotes/tools/unix/keytool.html).
 You need to have an appropriate Java Keystore and Truststore accessible from each node in the Flink cluster.
 
   - For standalone setups, this means copying the files to each node, or adding them to a shared mounted directory.
   - For container based setups, add the keystore and truststore files to the container images.
-  - For Yarn/Mesos setups, the cluster deployment phase can automatically distribute the keystore and truststore files.
+  - For Yarn setups, the cluster deployment phase can automatically distribute the keystore and truststore files.
 
 For the externally facing REST endpoint, the common name or subject alternative names in the certificate should match the node's hostname and IP address.
 
@@ -272,7 +266,7 @@ $ keytool -importcert -keystore rest.signed.keystore -storepass rest_keystore_pa
 $ keytool -importcert -keystore rest.signed.keystore -storepass rest_keystore_password -file rest.cer -alias flink.rest -noprompt
 ```
 
-Now add the following configuration to your `flink-conf.yaml`:
+Now add the following configuration to your [Flink configuration file]({{< ref "docs/deployment/config#flink-configuration-file" >}}):
 
 ```yaml
 security.ssl.rest.enabled: true
@@ -303,9 +297,9 @@ If mutual SSL is enabled:
 $ curl --cacert rest.pem --cert rest.pem flink_url
 ```
 
-## Tips for YARN / Mesos Deployment
+## Tips for YARN Deployment
 
-For YARN and Mesos, you can use the tools of Yarn and Mesos to help:
+For YARN, you can use the tools of Yarn to help:
 
   - Configuring security for internal communication is exactly the same as in the example above.
 

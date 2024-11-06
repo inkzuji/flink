@@ -19,39 +19,22 @@
 package org.apache.flink.runtime.state.hashmap;
 
 import org.apache.flink.annotation.PublicEvolving;
-import org.apache.flink.api.common.JobID;
-import org.apache.flink.api.common.typeutils.TypeSerializer;
-import org.apache.flink.configuration.CheckpointingOptions;
 import org.apache.flink.configuration.IllegalConfigurationException;
 import org.apache.flink.configuration.ReadableConfig;
-import org.apache.flink.core.fs.CloseableRegistry;
-import org.apache.flink.core.fs.FileSystem;
-import org.apache.flink.metrics.MetricGroup;
-import org.apache.flink.runtime.execution.Environment;
-import org.apache.flink.runtime.query.TaskKvStateRegistry;
+import org.apache.flink.core.execution.SavepointFormatType;
 import org.apache.flink.runtime.state.AbstractKeyedStateBackend;
 import org.apache.flink.runtime.state.AbstractStateBackend;
 import org.apache.flink.runtime.state.BackendBuildingException;
 import org.apache.flink.runtime.state.ConfigurableStateBackend;
 import org.apache.flink.runtime.state.DefaultOperatorStateBackendBuilder;
-import org.apache.flink.runtime.state.KeyGroupRange;
-import org.apache.flink.runtime.state.KeyedStateHandle;
 import org.apache.flink.runtime.state.LocalRecoveryConfig;
 import org.apache.flink.runtime.state.OperatorStateBackend;
-import org.apache.flink.runtime.state.OperatorStateHandle;
 import org.apache.flink.runtime.state.TaskStateManager;
 import org.apache.flink.runtime.state.heap.HeapKeyedStateBackendBuilder;
 import org.apache.flink.runtime.state.heap.HeapPriorityQueueSetFactory;
-import org.apache.flink.runtime.state.ttl.TtlTimeProvider;
-import org.apache.flink.util.TernaryBoolean;
-
-import javax.annotation.Nonnull;
+import org.apache.flink.runtime.state.metrics.LatencyTrackingStateConfig;
 
 import java.io.IOException;
-import java.net.URI;
-import java.util.Collection;
-
-import static org.apache.flink.util.Preconditions.checkNotNull;
 
 /**
  * This state backend holds the working state in the memory (JVM heap) of the TaskManagers and
@@ -80,75 +63,14 @@ public class HashMapStateBackend extends AbstractStateBackend implements Configu
 
     private static final long serialVersionUID = 1L;
 
-    // ------------------------------------------------------------------------
-
-    /**
-     * Switch to chose between synchronous and asynchronous snapshots. A value of 'undefined' means
-     * not yet configured, in which case the default will be used.
-     */
-    private final TernaryBoolean asynchronousSnapshots;
-
     // -----------------------------------------------------------------------
 
-    /**
-     * Creates a new state backend that stores its checkpoint data in the file system and location
-     * defined by the given URI.
-     *
-     * <p>A file system for the file system scheme in the URI (e.g., 'file://', 'hdfs://', or
-     * 'S3://') must be accessible via {@link FileSystem#get(URI)}.
-     *
-     * <p>For a state backend targeting HDFS, this means that the URI must either specify the
-     * authority (host and port), or that the Hadoop configuration that describes that information
-     * must be in the classpath.
-     */
-    public HashMapStateBackend() {
-        this(TernaryBoolean.UNDEFINED);
-    }
-
-    /**
-     * Creates a new state backend that stores its checkpoint data in the file system and location
-     * defined by the given URI.
-     *
-     * <p>A file system for the file system scheme in the URI (e.g., 'file://', 'hdfs://', or
-     * 'S3://') must be accessible via {@link FileSystem#get(URI)}.
-     *
-     * <p>For a state backend targeting HDFS, this means that the URI must either specify the
-     * authority (host and port), or that the Hadoop configuration that describes that information
-     * must be in the classpath.
-     *
-     * @param asynchronousSnapshots Flag to switch between synchronous and asynchronous snapshot
-     *     mode.
-     */
-    public HashMapStateBackend(boolean asynchronousSnapshots) {
-        this(TernaryBoolean.fromBoolean(asynchronousSnapshots));
-    }
-
-    /**
-     * Creates a new state backend that stores its checkpoint data in the file system and location
-     * defined by the given URI.
-     *
-     * <p>A file system for the file system scheme in the URI (e.g., 'file://', 'hdfs://', or
-     * 'S3://') must be accessible via {@link FileSystem#get(URI)}.
-     *
-     * <p>For a state backend targeting HDFS, this means that the URI must either specify the
-     * authority (host and port), or that the Hadoop configuration that describes that information
-     * must be in the classpath.
-     *
-     * @param asynchronousSnapshots Flag to switch between synchronous and asynchronous snapshot
-     *     mode. If UNDEFINED, the value configured in the runtime configuration will be used.
-     */
-    public HashMapStateBackend(TernaryBoolean asynchronousSnapshots) {
-        checkNotNull(asynchronousSnapshots, "asynchronousSnapshots");
-
-        this.asynchronousSnapshots = asynchronousSnapshots;
-    }
+    /** Creates a new state backend. */
+    public HashMapStateBackend() {}
 
     private HashMapStateBackend(HashMapStateBackend original, ReadableConfig config) {
-        // if asynchronous snapshots were configured, use that setting,
-        // else check the configuration
-        this.asynchronousSnapshots =
-                original.asynchronousSnapshots.resolveUndefined(
-                        config.get(CheckpointingOptions.ASYNC_SNAPSHOTS));
+        // configure latency tracking
+        latencyTrackingConfigBuilder = original.latencyTrackingConfigBuilder.configure(config);
     }
 
     @Override
@@ -158,67 +80,55 @@ public class HashMapStateBackend extends AbstractStateBackend implements Configu
     }
 
     @Override
-    public <K> AbstractKeyedStateBackend<K> createKeyedStateBackend(
-            Environment env,
-            JobID jobID,
-            String operatorIdentifier,
-            TypeSerializer<K> keySerializer,
-            int numberOfKeyGroups,
-            KeyGroupRange keyGroupRange,
-            TaskKvStateRegistry kvStateRegistry,
-            TtlTimeProvider ttlTimeProvider,
-            MetricGroup metricGroup,
-            @Nonnull Collection<KeyedStateHandle> stateHandles,
-            CloseableRegistry cancelStreamRegistry)
-            throws IOException {
+    public boolean supportsNoClaimRestoreMode() {
+        // we never share any files, all snapshots are full
+        return true;
+    }
 
-        TaskStateManager taskStateManager = env.getTaskStateManager();
+    @Override
+    public boolean supportsSavepointFormat(SavepointFormatType formatType) {
+        return true;
+    }
+
+    @Override
+    public <K> AbstractKeyedStateBackend<K> createKeyedStateBackend(
+            KeyedStateBackendParameters<K> parameters) throws IOException {
+        TaskStateManager taskStateManager = parameters.getEnv().getTaskStateManager();
         LocalRecoveryConfig localRecoveryConfig = taskStateManager.createLocalRecoveryConfig();
         HeapPriorityQueueSetFactory priorityQueueSetFactory =
-                new HeapPriorityQueueSetFactory(keyGroupRange, numberOfKeyGroups, 128);
+                new HeapPriorityQueueSetFactory(
+                        parameters.getKeyGroupRange(), parameters.getNumberOfKeyGroups(), 128);
 
+        LatencyTrackingStateConfig latencyTrackingStateConfig =
+                latencyTrackingConfigBuilder.setMetricGroup(parameters.getMetricGroup()).build();
         return new HeapKeyedStateBackendBuilder<>(
-                        kvStateRegistry,
-                        keySerializer,
-                        env.getUserCodeClassLoader().asClassLoader(),
-                        numberOfKeyGroups,
-                        keyGroupRange,
-                        env.getExecutionConfig(),
-                        ttlTimeProvider,
-                        stateHandles,
-                        getCompressionDecorator(env.getExecutionConfig()),
+                        parameters.getKvStateRegistry(),
+                        parameters.getKeySerializer(),
+                        parameters.getEnv().getUserCodeClassLoader().asClassLoader(),
+                        parameters.getNumberOfKeyGroups(),
+                        parameters.getKeyGroupRange(),
+                        parameters.getEnv().getExecutionConfig(),
+                        parameters.getTtlTimeProvider(),
+                        latencyTrackingStateConfig,
+                        parameters.getStateHandles(),
+                        getCompressionDecorator(parameters.getEnv().getExecutionConfig()),
                         localRecoveryConfig,
                         priorityQueueSetFactory,
-                        isUsingAsynchronousSnapshots(),
-                        cancelStreamRegistry)
+                        true,
+                        parameters.getCancelStreamRegistry())
                 .build();
     }
 
     @Override
     public OperatorStateBackend createOperatorStateBackend(
-            Environment env,
-            String operatorIdentifier,
-            @Nonnull Collection<OperatorStateHandle> stateHandles,
-            CloseableRegistry cancelStreamRegistry)
-            throws BackendBuildingException {
+            OperatorStateBackendParameters parameters) throws BackendBuildingException {
 
         return new DefaultOperatorStateBackendBuilder(
-                        env.getUserCodeClassLoader().asClassLoader(),
-                        env.getExecutionConfig(),
-                        isUsingAsynchronousSnapshots(),
-                        stateHandles,
-                        cancelStreamRegistry)
+                        parameters.getEnv().getUserCodeClassLoader().asClassLoader(),
+                        parameters.getEnv().getExecutionConfig(),
+                        true,
+                        parameters.getStateHandles(),
+                        parameters.getCancelStreamRegistry())
                 .build();
-    }
-
-    /**
-     * Gets whether the key/value data structures are asynchronously snapshotted.
-     *
-     * <p>If not explicitly configured, this is the default value of {@link
-     * CheckpointingOptions#ASYNC_SNAPSHOTS}.
-     */
-    public boolean isUsingAsynchronousSnapshots() {
-        return asynchronousSnapshots.getOrDefault(
-                CheckpointingOptions.ASYNC_SNAPSHOTS.defaultValue());
     }
 }

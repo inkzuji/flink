@@ -20,21 +20,21 @@ package org.apache.flink.runtime.scheduler.benchmark.deploying;
 
 import org.apache.flink.runtime.executiongraph.Execution;
 import org.apache.flink.runtime.scheduler.benchmark.JobConfiguration;
-import org.apache.flink.util.TestLogger;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 /**
  * The benchmark of deploying tasks in a STREAMING job. The related method is {@link
  * Execution#deploy}.
  */
-public class DeployingTasksInStreamingJobBenchmarkTest extends TestLogger {
+class DeployingTasksInStreamingJobBenchmarkTest {
 
     @Test
-    public void deployAllTasks() throws Exception {
+    void deployAllTasks() throws Exception {
         DeployingTasksInStreamingJobBenchmark benchmark =
                 new DeployingTasksInStreamingJobBenchmark();
         benchmark.setup(JobConfiguration.STREAMING_TEST);
         benchmark.deployAllTasks();
+        benchmark.teardown();
     }
 }

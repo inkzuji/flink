@@ -18,21 +18,17 @@
 package org.apache.flink.runtime.jobmaster;
 
 import org.apache.flink.api.common.JobID;
-import org.apache.flink.api.common.time.Time;
 import org.apache.flink.runtime.clusterframework.types.AllocationID;
 import org.apache.flink.runtime.clusterframework.types.ResourceProfile;
-import org.apache.flink.runtime.execution.ExecutionState;
-import org.apache.flink.runtime.messages.Acknowledge;
 import org.apache.flink.runtime.rpc.TestingRpcService;
 import org.apache.flink.runtime.taskexecutor.TaskExecutorGateway;
-import org.apache.flink.runtime.taskexecutor.TestingTaskExecutorGatewayBuilder;
 import org.apache.flink.runtime.taskexecutor.slot.SlotOffer;
 import org.apache.flink.runtime.taskmanager.LocalUnresolvedTaskManagerLocation;
-import org.apache.flink.runtime.taskmanager.TaskExecutionState;
 import org.apache.flink.runtime.taskmanager.UnresolvedTaskManagerLocation;
+import org.apache.flink.testutils.TestingUtils;
 
+import java.time.Duration;
 import java.util.Collection;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -45,19 +41,9 @@ public class JobMasterTestUtils {
             JobMasterGateway jobMasterGateway,
             JobID jobId,
             int numSlots,
-            Time testingTimeout)
+            TaskExecutorGateway taskExecutorGateway,
+            Duration testingTimeout)
             throws ExecutionException, InterruptedException {
-
-        final TaskExecutorGateway taskExecutorGateway =
-                new TestingTaskExecutorGatewayBuilder()
-                        .setCancelTaskFunction(
-                                executionAttemptId -> {
-                                    jobMasterGateway.updateTaskExecutionState(
-                                            new TaskExecutionState(
-                                                    executionAttemptId, ExecutionState.CANCELED));
-                                    return CompletableFuture.completedFuture(Acknowledge.get());
-                                })
-                        .createTestingTaskExecutorGateway();
 
         final UnresolvedTaskManagerLocation unresolvedTaskManagerLocation =
                 new LocalUnresolvedTaskManagerLocation();
@@ -66,9 +52,11 @@ public class JobMasterTestUtils {
 
         jobMasterGateway
                 .registerTaskManager(
-                        taskExecutorGateway.getAddress(),
-                        unresolvedTaskManagerLocation,
                         jobId,
+                        TaskManagerRegistrationInformation.create(
+                                taskExecutorGateway.getAddress(),
+                                unresolvedTaskManagerLocation,
+                                TestingUtils.zeroUUID()),
                         testingTimeout)
                 .get();
 

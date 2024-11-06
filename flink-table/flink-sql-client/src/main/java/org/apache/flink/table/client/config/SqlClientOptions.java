@@ -18,13 +18,18 @@
 
 package org.apache.flink.table.client.config;
 
+import org.apache.flink.annotation.PublicEvolving;
 import org.apache.flink.annotation.docs.Documentation;
 import org.apache.flink.configuration.ConfigOption;
 import org.apache.flink.configuration.ConfigOptions;
+import org.apache.flink.table.client.cli.parser.SyntaxHighlightStyle;
 
 /** Options used in sql client. */
+@PublicEvolving
 public class SqlClientOptions {
     private SqlClientOptions() {}
+
+    // Execution options
 
     @Documentation.TableOption(execMode = Documentation.ExecMode.BATCH_STREAMING)
     public static final ConfigOption<Integer> EXECUTION_MAX_TABLE_RESULT_ROWS =
@@ -40,9 +45,39 @@ public class SqlClientOptions {
             ConfigOptions.key("sql-client.execution.result-mode")
                     .enumType(ResultMode.class)
                     .defaultValue(ResultMode.TABLE)
+                    .withDescription("Determines how the query result should be displayed.");
+
+    @Documentation.TableOption(execMode = Documentation.ExecMode.BATCH_STREAMING)
+    public static final ConfigOption<Boolean> VERBOSE =
+            ConfigOptions.key("sql-client.verbose")
+                    .booleanType()
+                    .defaultValue(false)
                     .withDescription(
-                            "Determine the mode when display the query result. The available values are ['table', 'tableau', 'changelog']. "
-                                    + "The 'table' mode materializes results in memory and visualizes them in a regular, paginated table representation. "
-                                    + "The 'changelog' mode does not materialize results and visualizes the result stream that is produced by a continuous query. "
-                                    + "The 'tableau' mode is more like a traditional way which will display the results in the screen directly with a tableau format. ");
+                            "Determine whether to output the verbose output to the console. If set the option true, it will print the exception stack. Otherwise, it only output the cause.");
+
+    // Display options
+
+    @Documentation.TableOption(execMode = Documentation.ExecMode.BATCH)
+    public static final ConfigOption<Boolean> DISPLAY_QUERY_TIME_COST =
+            ConfigOptions.key("sql-client.display.print-time-cost")
+                    .booleanType()
+                    .defaultValue(true)
+                    .withDescription(
+                            "Determine whether to display the time consumption of the query. By default, no query time cost will be displayed.");
+
+    @Documentation.TableOption(execMode = Documentation.ExecMode.BATCH_STREAMING)
+    public static final ConfigOption<String> DISPLAY_DEFAULT_COLOR_SCHEMA =
+            ConfigOptions.key("sql-client.display.color-schema")
+                    .stringType()
+                    .defaultValue(SyntaxHighlightStyle.BuiltInStyle.DEFAULT.name())
+                    .withDescription(
+                            "SQL highlight color schema to be used at SQL client. Possible values: 'default', 'dark', 'light', 'chester', 'vs2010', 'solarized', 'obsidian', 'geshi'");
+
+    @Documentation.TableOption(execMode = Documentation.ExecMode.BATCH_STREAMING)
+    public static final ConfigOption<Boolean> DISPLAY_SHOW_LINE_NUMBERS =
+            ConfigOptions.key("sql-client.display.show-line-numbers")
+                    .booleanType()
+                    .defaultValue(Boolean.FALSE)
+                    .withDescription(
+                            "Determines whether there should be shown line numbers in multiline SQL or not.");
 }

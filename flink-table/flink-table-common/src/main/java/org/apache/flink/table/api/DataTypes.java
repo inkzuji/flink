@@ -62,6 +62,7 @@ import org.apache.flink.table.types.logical.VarCharType;
 import org.apache.flink.table.types.logical.YearMonthIntervalType;
 import org.apache.flink.table.types.logical.YearMonthIntervalType.YearMonthResolution;
 import org.apache.flink.table.types.logical.ZonedTimestampType;
+import org.apache.flink.table.types.utils.TypeConversions;
 import org.apache.flink.table.types.utils.TypeInfoDataTypeConverter;
 import org.apache.flink.util.Preconditions;
 
@@ -75,6 +76,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.function.BiFunction;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
 import static org.apache.flink.table.types.extraction.ExtractionUtils.validateStructuredClass;
@@ -94,6 +96,16 @@ import static org.apache.flink.table.types.extraction.ExtractionUtils.validateSt
  */
 @PublicEvolving
 public final class DataTypes {
+
+    /**
+     * Creates a {@link DataType} from a {@link LogicalType} with default conversion class.
+     *
+     * @return the {@link LogicalType} converted to a {@link DataType}.
+     * @see LogicalType#getDefaultConversion()
+     */
+    public static DataType of(LogicalType logicalType) {
+        return TypeConversions.fromLogicalToDataType(logicalType);
+    }
 
     /**
      * Creates an unresolved type that will be resolved to a {@link DataType} by analyzing the given
@@ -138,6 +150,7 @@ public final class DataTypes {
      * by the API. At other locations, a {@link DataTypeFactory} is provided.
      */
     public static UnresolvedDataType of(Class<?> unresolvedClass) {
+        Preconditions.checkNotNull(unresolvedClass, "Unresolved class name must not be null.");
         return new UnresolvedDataType(
                 () -> String.format("'%s'", unresolvedClass.getName()),
                 (factory) -> factory.createDataType(unresolvedClass));
@@ -154,6 +167,7 @@ public final class DataTypes {
      * by the API. At other locations, a {@link DataTypeFactory} is provided.
      */
     public static UnresolvedDataType of(String unresolvedName) {
+        Preconditions.checkNotNull(unresolvedName, "Unresolved name must not be null.");
         return new UnresolvedDataType(
                 () -> unresolvedName, (factory) -> factory.createDataType(unresolvedName));
     }
@@ -173,8 +187,9 @@ public final class DataTypes {
      * by the API. At other locations, a {@link DataTypeFactory} is provided.
      */
     public static UnresolvedDataType of(TypeInformation<?> typeInfo) {
+        Preconditions.checkNotNull(typeInfo, "Type information must not be null.");
         return new UnresolvedDataType(
-                () -> String.format("'%s'", typeInfo.toString()),
+                () -> String.format("'%s'", typeInfo),
                 (factory) -> factory.createDataType(typeInfo));
     }
 
@@ -729,6 +744,24 @@ public final class DataTypes {
         return new FieldsDataType(new RowType(logicalFields), fieldDataTypes);
     }
 
+    /** @see #ROW(Field...) */
+    public static DataType ROW(List<Field> fields) {
+        return ROW(fields.toArray(new Field[0]));
+    }
+
+    /**
+     * Data type of a sequence of fields.
+     *
+     * <p>This is shortcut for {@link #ROW(Field...)} where the field names will be generated using
+     * {@code f0, f1, f2, ...}.
+     */
+    public static DataType ROW(DataType... fieldDataTypes) {
+        return ROW(
+                IntStream.range(0, fieldDataTypes.length)
+                        .mapToObj(idx -> FIELD("f" + idx, fieldDataTypes[idx]))
+                        .toArray(Field[]::new));
+    }
+
     /**
      * Data type of a row type with no fields. It only exists for completeness.
      *
@@ -750,7 +783,7 @@ public final class DataTypes {
      * <p>Use {@link #FIELD(String, AbstractDataType)} or {@link #FIELD(String, AbstractDataType,
      * String)} to construct fields.
      *
-     * <p>Note: Compared to {@link #ROW(Field...)} )}, this method produces an {@link
+     * <p>Note: Compared to {@link #ROW(Field...)}, this method produces an {@link
      * UnresolvedDataType} with {@link UnresolvedField}s. In most of the cases, the {@link
      * UnresolvedDataType} will be automatically resolved by the API. At other locations, a {@link
      * DataTypeFactory} is provided.
@@ -780,6 +813,19 @@ public final class DataTypes {
                                     .toArray(Field[]::new);
                     return ROW(fieldsArray);
                 });
+    }
+
+    /**
+     * Data type of a sequence of fields.
+     *
+     * <p>This is shortcut for {@link #ROW(AbstractField...)} where the field names will be
+     * generated using {@code f0, f1, f2, ...}.
+     */
+    public static UnresolvedDataType ROW(AbstractDataType<?>... fieldDataTypes) {
+        return ROW(
+                IntStream.range(0, fieldDataTypes.length)
+                        .mapToObj(idx -> FIELD("f" + idx, fieldDataTypes[idx]))
+                        .toArray(AbstractField[]::new));
     }
 
     /**
@@ -1042,6 +1088,7 @@ public final class DataTypes {
      *
      * @see #INTERVAL(Resolution)
      */
+    @PublicEvolving
     public static final class Resolution {
 
         private static final int EMPTY_PRECISION = -1;
@@ -1191,6 +1238,7 @@ public final class DataTypes {
      * @see #FIELD(String, AbstractDataType)
      * @see #FIELD(String, AbstractDataType, String)
      */
+    @PublicEvolving
     public abstract static class AbstractField {
 
         protected final String name;
@@ -1248,6 +1296,7 @@ public final class DataTypes {
      * @see #FIELD(String, DataType)
      * @see #FIELD(String, DataType, String)
      */
+    @PublicEvolving
     public static final class Field extends AbstractField {
 
         private final DataType dataType;
@@ -1295,6 +1344,7 @@ public final class DataTypes {
      * @see #FIELD(String, AbstractDataType)
      * @see #FIELD(String, AbstractDataType, String)
      */
+    @PublicEvolving
     public static final class UnresolvedField extends AbstractField {
 
         private final AbstractDataType<?> dataType;

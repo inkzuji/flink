@@ -32,7 +32,7 @@ import java.io.IOException;
 
 /** This output format copies files from an existing savepoint into a new directory. */
 @Internal
-public final class FileCopyFunction implements OutputFormat<String> {
+public final class FileCopyFunction implements OutputFormat<Path> {
 
     private static final long serialVersionUID = 1L;
 
@@ -44,7 +44,7 @@ public final class FileCopyFunction implements OutputFormat<String> {
     }
 
     @Override
-    public void open(int taskNumber, int numTasks) throws IOException {
+    public void open(InitializationContext context) throws IOException {
         // Create the destination parent directory before copy.
         // It is not a problem if it exists already.
         Path destParent = new Path(path);
@@ -52,8 +52,7 @@ public final class FileCopyFunction implements OutputFormat<String> {
     }
 
     @Override
-    public void writeRecord(String record) throws IOException {
-        Path sourcePath = new Path(record);
+    public void writeRecord(Path sourcePath) throws IOException {
         Path destPath = new Path(path, sourcePath.getName());
         try (FSDataOutputStream os =
                         destPath.getFileSystem()

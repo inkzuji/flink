@@ -26,17 +26,15 @@ import org.apache.flink.runtime.jobgraph.JobVertex;
 import org.apache.flink.runtime.jobmanager.scheduler.SlotSharingGroup;
 import org.apache.flink.runtime.minicluster.TestingMiniCluster;
 import org.apache.flink.runtime.minicluster.TestingMiniClusterConfiguration;
-import org.apache.flink.util.TestLogger;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import java.util.concurrent.CompletableFuture;
 
-import static org.hamcrest.Matchers.is;
-import static org.junit.Assert.assertThat;
+import static org.assertj.core.api.Assertions.assertThat;
 
 /** Integration tests for job scheduling. */
-public class JobExecutionITCase extends TestLogger {
+class JobExecutionITCase {
 
     /**
      * Tests that tasks with a co-location constraint are scheduled in the same slots. In fact it
@@ -44,20 +42,21 @@ public class JobExecutionITCase extends TestLogger {
      * constraint is deactivated.
      */
     @Test
-    public void testCoLocationConstraintJobExecution() throws Exception {
+    void testCoLocationConstraintJobExecution() throws Exception {
         final int numSlotsPerTaskExecutor = 1;
         final int numTaskExecutors = 3;
         final int parallelism = numTaskExecutors * numSlotsPerTaskExecutor;
         final JobGraph jobGraph = createJobGraph(parallelism);
 
         final TestingMiniClusterConfiguration miniClusterConfiguration =
-                new TestingMiniClusterConfiguration.Builder()
+                TestingMiniClusterConfiguration.newBuilder()
                         .setNumSlotsPerTaskManager(numSlotsPerTaskExecutor)
                         .setNumTaskManagers(numTaskExecutors)
                         .setLocalCommunication(true)
                         .build();
 
-        try (TestingMiniCluster miniCluster = new TestingMiniCluster(miniClusterConfiguration)) {
+        try (TestingMiniCluster miniCluster =
+                TestingMiniCluster.newBuilder(miniClusterConfiguration).build()) {
             miniCluster.start();
 
             miniCluster.submitJob(jobGraph).get();
@@ -65,7 +64,7 @@ public class JobExecutionITCase extends TestLogger {
             final CompletableFuture<JobResult> jobResultFuture =
                     miniCluster.requestJobResult(jobGraph.getJobID());
 
-            assertThat(jobResultFuture.get().isSuccess(), is(true));
+            assertThat(jobResultFuture.get().isSuccess()).isTrue();
         }
     }
 

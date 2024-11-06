@@ -18,91 +18,75 @@
 
 package org.apache.flink.table.client.gateway;
 
-import org.apache.flink.table.api.TableResult;
-import org.apache.flink.table.delegation.Parser;
-import org.apache.flink.types.Row;
+import org.apache.flink.configuration.ReadableConfig;
+import org.apache.flink.table.gateway.rest.util.RowFormat;
+import org.apache.flink.table.gateway.service.context.DefaultContext;
 
-import javax.annotation.Nullable;
-
+import java.io.Closeable;
+import java.net.InetSocketAddress;
+import java.net.URL;
 import java.util.List;
 import java.util.Map;
 
 /** A gateway for communicating with Flink and other external systems. */
-public interface Executor {
+public interface Executor extends Closeable {
 
-    /** Starts the executor and ensures that its is ready for commands to be executed. */
-    void start() throws SqlExecutionException;
+    /** Create an {@link Executor} to execute commands. */
+    static Executor create(
+            DefaultContext defaultContext, InetSocketAddress address, String sessionId) {
+        return new ExecutorImpl(defaultContext, address, sessionId);
+    }
+
+    static Executor create(
+            DefaultContext defaultContext,
+            InetSocketAddress address,
+            String sessionId,
+            RowFormat rowFormat) {
+        return new ExecutorImpl(defaultContext, address, sessionId, rowFormat);
+    }
+
+    static Executor create(DefaultContext defaultContext, URL address, String sessionId) {
+        return new ExecutorImpl(defaultContext, address, sessionId);
+    }
 
     /**
-     * Open a new session by using the given session id.
+     * Configures session with statement.
      *
-     * @param sessionId session identifier.
-     * @return used session identifier to track the session.
-     * @throws SqlExecutionException if any error happen
+     * @param statement to initialize the session
      */
-    String openSession(@Nullable String sessionId) throws SqlExecutionException;
+    void configureSession(String statement);
 
     /**
-     * Close the resources of session for given session id.
+     * Get the configuration of the session.
      *
-     * @param sessionId session identifier
-     * @throws SqlExecutionException if any error happen
+     * @return the session configuration.
      */
-    void closeSession(String sessionId) throws SqlExecutionException;
-
-    /** Lists all session properties that are defined by the executor and the session. */
-    Map<String, String> getSessionProperties(String sessionId) throws SqlExecutionException;
+    ReadableConfig getSessionConfig();
 
     /**
-     * Reset all the properties for the given session identifier.
+     * Get the map configuration of the session.
      *
-     * @param sessionId to identifier the session
-     * @throws SqlExecutionException if any error happen.
+     * @return the map session configuration.
      */
-    void resetSessionProperties(String sessionId) throws SqlExecutionException;
+    Map<String, String> getSessionConfigMap();
 
     /**
-     * Set given key's session property to the specific value.
+     * Execute statement.
      *
-     * @param key of the session property
-     * @param value of the session property
-     * @throws SqlExecutionException if any error happen.
+     * @param statement to execute
+     * @return Iterable results of the statement
      */
-    void setSessionProperty(String sessionId, String key, String value)
-            throws SqlExecutionException;
-
-    /** Executes a SQL statement, and return {@link TableResult} as execution result. */
-    TableResult executeSql(String sessionId, String statement) throws SqlExecutionException;
-
-    /** Returns a sql parser instance. */
-    Parser getSqlParser(String sessionId);
-
-    /** Returns a list of completion hints for the given statement at the given position. */
-    List<String> completeStatement(String sessionId, String statement, int position);
-
-    /** Submits a Flink SQL query job (detached) and returns the result descriptor. */
-    ResultDescriptor executeQuery(String sessionId, String query) throws SqlExecutionException;
-
-    /** Asks for the next changelog results (non-blocking). */
-    TypedResult<List<Row>> retrieveResultChanges(String sessionId, String resultId)
-            throws SqlExecutionException;
+    StatementResult executeStatement(String statement);
 
     /**
-     * Creates an immutable result snapshot of the running Flink job. Throws an exception if no
-     * Flink job can be found. Returns the number of pages.
+     * Returns a list of completion hints for the given statement at the given position.
+     *
+     * @param statement Partial or slightly incorrect SQL statement
+     * @param position cursor position
+     * @return completion hints that fit at the current cursor position
      */
-    TypedResult<Integer> snapshotResult(String sessionId, String resultId, int pageSize)
-            throws SqlExecutionException;
+    List<String> completeStatement(String statement, int position);
 
-    /**
-     * Returns the rows that are part of the current page or throws an exception if the snapshot has
-     * been expired.
-     */
-    List<Row> retrieveResultPage(String resultId, int page) throws SqlExecutionException;
-
-    /**
-     * Cancels a table program and stops the result retrieval. Blocking until cancellation command
-     * has been sent to cluster.
-     */
-    void cancelQuery(String sessionId, String resultId) throws SqlExecutionException;
+    /** Close the {@link Executor} and process all exceptions. */
+    void close();
 }

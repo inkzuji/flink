@@ -19,13 +19,14 @@
 package org.apache.flink.table.planner.delegation.hive;
 
 import org.apache.flink.table.catalog.hive.HiveTestUtils;
-import org.apache.flink.table.planner.delegation.hive.parse.HiveASTParseUtils;
+import org.apache.flink.table.planner.delegation.hive.copy.HiveASTParseUtils;
+import org.apache.flink.table.planner.delegation.hive.copy.HiveParserContext;
 import org.apache.flink.table.planner.delegation.hive.parse.HiveASTParser;
 
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.junit.Test;
 
-import static org.junit.Assert.assertEquals;
+import static org.assertj.core.api.Assertions.assertThat;
 
 /** Tests for the AST parser. */
 public class HiveASTParserTest {
@@ -138,10 +139,26 @@ public class HiveASTParserTest {
         assertDDLType(HiveASTParser.TOK_SHOWFUNCTIONS, "show functions");
     }
 
+    @Test
+    public void testMacro() throws Exception {
+        assertDDLType(
+                HiveASTParser.TOK_CREATEMACRO, "create temporary macro m1 (x int, y int) x + y ");
+        assertDDLType(HiveASTParser.TOK_DROPMACRO, "drop temporary macro m1");
+    }
+
+    @Test
+    public void testConstraints() throws Exception {
+        assertDDLType(
+                HiveASTParser.TOK_CREATETABLE,
+                "create table foo (x int not null norely,y string not null disable validate)",
+                "create table foo(x int,y int, primary key(x) enable rely)",
+                "create table foo(x int,y decimal, constraint pk primary key (x,y))");
+    }
+
     private void assertDDLType(int type, String... sqls) throws Exception {
         for (String sql : sqls) {
             HiveParserContext parserContext = new HiveParserContext(hiveConf);
-            assertEquals(type, HiveASTParseUtils.parse(sql, parserContext).getType());
+            assertThat(HiveASTParseUtils.parse(sql, parserContext).getType()).isEqualTo(type);
         }
     }
 }

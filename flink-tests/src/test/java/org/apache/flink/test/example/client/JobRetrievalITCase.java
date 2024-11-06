@@ -40,6 +40,7 @@ import org.junit.Before;
 import org.junit.ClassRule;
 import org.junit.Test;
 
+import java.time.Duration;
 import java.util.Optional;
 import java.util.concurrent.Semaphore;
 
@@ -64,8 +65,8 @@ public class JobRetrievalITCase extends TestLogger {
     @Before
     public void setUp() throws Exception {
         final Configuration clientConfig = new Configuration();
-        clientConfig.setInteger(RestOptions.RETRY_MAX_ATTEMPTS, 0);
-        clientConfig.setLong(RestOptions.RETRY_DELAY, 0);
+        clientConfig.set(RestOptions.RETRY_MAX_ATTEMPTS, 0);
+        clientConfig.set(RestOptions.RETRY_DELAY, Duration.ofMillis(0L));
         clientConfig.addAll(CLUSTER.getClientConfiguration());
 
         client = new RestClusterClient<>(clientConfig, StandaloneClusterId.getInstance());
@@ -82,6 +83,7 @@ public class JobRetrievalITCase extends TestLogger {
     public void testJobRetrieval() throws Exception {
         final JobVertex imalock = new JobVertex("imalock");
         imalock.setInvokableClass(SemaphoreInvokable.class);
+        imalock.setParallelism(1);
 
         final JobGraph jobGraph = JobGraphTestUtils.streamingJobGraph(imalock);
         final JobID jobId = jobGraph.getJobID();

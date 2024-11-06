@@ -18,132 +18,271 @@
 
 package org.apache.flink.table.client;
 
-import org.apache.flink.core.testutils.CommonTestUtils;
-import org.apache.flink.table.client.cli.TerminalStreamsResource;
+import org.apache.flink.configuration.Configuration;
+import org.apache.flink.table.gateway.rest.util.SqlGatewayRestEndpointExtension;
+import org.apache.flink.table.gateway.service.utils.SqlGatewayServiceExtension;
 import org.apache.flink.util.FileUtils;
+import org.apache.flink.util.Preconditions;
 
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.rules.ExpectedException;
-import org.junit.rules.TemporaryFolder;
+import org.junit.jupiter.api.Order;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.RegisterExtension;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.File;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.PrintStream;
 import java.net.URL;
-import java.nio.charset.StandardCharsets;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Objects;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
 
-import static org.apache.flink.configuration.ConfigConstants.ENV_FLINK_CONF_DIR;
-import static org.hamcrest.CoreMatchers.containsString;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertThat;
+import static org.apache.flink.configuration.DeploymentOptions.TARGET;
+import static org.apache.flink.core.testutils.CommonTestUtils.assertThrows;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** Tests for {@link SqlClient}. */
-public class SqlClientTest {
+class SqlClientTest extends SqlClientTestBase {
 
-    @Rule public ExpectedException thrown = ExpectedException.none();
+    @RegisterExtension
+    @Order(1)
+    public static final SqlGatewayServiceExtension SQL_GATEWAY_SERVICE_EXTENSION =
+            new SqlGatewayServiceExtension(
+                    () -> {
+                        Configuration configuration = new Configuration();
+                        configuration.set(TARGET, "yarn-session");
+                        return configuration;
+                    });
 
-    @Rule public TemporaryFolder tempFolder = new TemporaryFolder();
+    @RegisterExtension
+    @Order(2)
+    private static final SqlGatewayRestEndpointExtension SQL_GATEWAY_REST_ENDPOINT_EXTENSION =
+            new SqlGatewayRestEndpointExtension(SQL_GATEWAY_SERVICE_EXTENSION::getService);
 
-    @Rule public final TerminalStreamsResource useSystemStream = TerminalStreamsResource.INSTANCE;
-
-    private PrintStream originalPrintStream;
-
-    private InputStream originalInputStream;
-
-    private ByteArrayOutputStream testOutputStream;
-
-    private Map<String, String> originalEnv;
-
-    private String historyPath;
-
-    @Before
-    public void before() throws IOException {
-        originalEnv = System.getenv();
-        originalPrintStream = System.out;
-        originalInputStream = System.in;
-        testOutputStream = new ByteArrayOutputStream();
-        System.setOut(new PrintStream(testOutputStream, true));
-        // send "QUIT;" command to gracefully shutdown the terminal
-        System.setIn(new ByteArrayInputStream("QUIT;".getBytes(StandardCharsets.UTF_8)));
-
-        // prepare conf dir
-        File confFolder = tempFolder.newFolder("conf");
-        File confYaml = new File(confFolder, "flink-conf.yaml");
-        if (!confYaml.createNewFile()) {
-            throw new IOException("Can't create testing flink-conf.yaml file.");
-        }
-
-        // adjust the test environment for the purposes of this test
-        Map<String, String> map = new HashMap<>(System.getenv());
-        map.put(ENV_FLINK_CONF_DIR, confFolder.getAbsolutePath());
-        CommonTestUtils.setEnv(map);
-
-        historyPath = tempFolder.newFile("history").toString();
-    }
-
-    @After
-    public void after() throws InterruptedException {
-        System.setOut(originalPrintStream);
-        System.setIn(originalInputStream);
-        CommonTestUtils.setEnv(originalEnv);
-    }
-
-    private String getStdoutString() {
-        return testOutputStream.toString();
-    }
-
-    @Test(timeout = 20000)
-    public void testEmbeddedWithOptions() throws InterruptedException {
+    @Test
+    void testEmbeddedWithOptions() throws Exception {
         String[] args = new String[] {"embedded", "-hist", historyPath};
-        SqlClient.main(args);
-        assertThat(getStdoutString(), containsString("Command history file path: " + historyPath));
+        String actual = runSqlClient(args);
+        assertThat(actual).contains("Command history file path: " + historyPath);
     }
 
-    @Test(timeout = 20000)
-    public void testEmbeddedWithLongOptions() throws InterruptedException {
+    @Test
+    void testEmbeddedWithLongOptions() throws Exception {
         String[] args = new String[] {"embedded", "--history", historyPath};
-        SqlClient.main(args);
-        assertThat(getStdoutString(), containsString("Command history file path: " + historyPath));
+        String actual = runSqlClient(args);
+        assertThat(actual).contains("Command history file path: " + historyPath);
     }
 
-    @Test(timeout = 20000)
-    public void testEmbeddedWithoutOptions() throws InterruptedException {
+    @Test
+    void testEmbeddedWithoutOptions() throws Exception {
         String[] args = new String[] {"embedded"};
-        SqlClient.main(args);
-        assertThat(getStdoutString(), containsString("Command history file path"));
+        String actual = runSqlClient(args);
+        assertThat(actual).contains("Command history file path: ");
     }
 
-    @Test(timeout = 20000)
-    public void testEmptyOptions() throws InterruptedException {
+    @Test
+    void testEmbeddedWithConfigOptions() throws Exception {
+        String[] args = new String[] {"embedded", "-D", "key1=val1", "-D", "key2=val2"};
+        String output = runSqlClient(args, "SET;\nQUIT;\n", false);
+        assertThat(output).contains("key1", "val1", "key2", "val2");
+    }
+
+    @Test
+    void testEmptyOptions() throws Exception {
         String[] args = new String[] {};
-        SqlClient.main(args);
-        assertThat(getStdoutString(), containsString("Command history file path"));
+        String actual = runSqlClient(args);
+        assertThat(actual).contains("Command history file path");
     }
 
-    @Test(timeout = 20000)
-    public void testUnsupportedGatewayMode() throws Exception {
+    @Test
+    void testGatewayModeHostnamePort() throws Exception {
+        String[] args =
+                new String[] {
+                    "gateway",
+                    "-e",
+                    String.format(
+                            "%s:%d",
+                            SQL_GATEWAY_REST_ENDPOINT_EXTENSION.getTargetAddress(),
+                            SQL_GATEWAY_REST_ENDPOINT_EXTENSION.getTargetPort())
+                };
+        String actual = runSqlClient(args, String.join("\n", "SET;", "QUIT;"), false);
+        assertThat(actual).contains("execution.target", "yarn-session");
+    }
+
+    @Test
+    void testGatewayModeUrl() throws Exception {
+        String[] args =
+                new String[] {
+                    "gateway",
+                    "-e",
+                    String.format(
+                            "http://%s:%d",
+                            SQL_GATEWAY_REST_ENDPOINT_EXTENSION.getTargetAddress(),
+                            SQL_GATEWAY_REST_ENDPOINT_EXTENSION.getTargetPort())
+                };
+        String actual = runSqlClient(args, String.join("\n", "SET;", "QUIT;"), false);
+        assertThat(actual).contains("execution.target", "yarn-session");
+    }
+
+    @Test
+    void testGatewayModeWithoutAddress() throws Exception {
         String[] args = new String[] {"gateway"};
-        thrown.expect(SqlClientException.class);
-        thrown.expectMessage("Gateway mode is not supported yet.");
-        SqlClient.main(args);
+        assertThrows(
+                "Please specify the address of the SQL Gateway with command line option"
+                        + " '-e,--endpoint <SQL Gateway address>' in the gateway mode.",
+                SqlClientException.class,
+                () -> runSqlClient(args));
     }
 
-    @Test(timeout = 20000)
-    public void testPrintHelpForUnknownMode() throws IOException {
-        String[] args = new String[] {"unknown"};
-        SqlClient.main(args);
-        final URL url = getClass().getClassLoader().getResource("sql-client-help.out");
-        Objects.requireNonNull(url);
+    @Test
+    void testErrorMessage() throws Exception {
+        // prepare statements which will throw exception
+        String stmts =
+                "CREATE TABLE T (a int) WITH ('connector' = 'invalid');\n"
+                        + "SELECT * FROM T;\n"
+                        + "QUIT;\n";
+        String[] args = new String[] {};
+        String output = runSqlClient(args, stmts, false);
+        assertThat(output)
+                .contains(
+                        "org.apache.flink.table.api.ValidationException: Could not find any factory for identifier 'invalid'");
+
+        // shouldn't contain error stack
+        String[] errorStack =
+                new String[] {
+                    "at org.apache.flink.table.factories.FactoryUtil.discoverFactory",
+                    "at org.apache.flink.table.factories.FactoryUtil.createDynamicTableSource"
+                };
+        for (String stack : errorStack) {
+            assertThat(output).doesNotContain(stack);
+        }
+    }
+
+    @Test
+    void testVerboseErrorMessage() throws Exception {
+        // prepare statements which will throw exception
+        String stmts =
+                "CREATE TABLE T (a int) WITH ('connector' = 'invalid');\n"
+                        + "SET 'sql-client.verbose' = 'true';\n"
+                        + "SELECT * FROM T;\n"
+                        + "QUIT;\n";
+        String[] args = new String[] {};
+        String output = runSqlClient(args, stmts, false);
+        String[] errors =
+                new String[] {
+                    "org.apache.flink.table.api.ValidationException: Could not find any factory for identifier 'invalid'",
+                    "at org.apache.flink.table.factories.FactoryUtil.discoverFactory",
+                    "at org.apache.flink.table.factories.FactoryUtil.createDynamicTableSource"
+                };
+        for (String error : errors) {
+            assertThat(output).contains(error);
+        }
+    }
+
+    @Test
+    void testInitFile() throws Exception {
+        List<String> statements =
+                Arrays.asList(
+                        "-- define table \n"
+                                + "CREATE TABLE source ("
+                                + "id INT,"
+                                + "val STRING"
+                                + ") WITH ("
+                                + "  'connector' = 'values'"
+                                + "); \n",
+                        " -- define config \nSET 'key' = 'value';\n");
+        String initFile = createSqlFile(statements, "init-sql.sql");
+
+        String[] args = new String[] {"-i", initFile};
+        String output = runSqlClient(args, "SET;\nQUIT;\n", false);
+        assertThat(output).contains("key", "value");
+    }
+
+    @Test
+    void testExecuteSqlFile() throws Exception {
+        List<String> statements = Collections.singletonList("HELP;\n");
+        String sqlFilePath = createSqlFile(statements, "test-sql.sql");
+        String[] args = new String[] {"-f", sqlFilePath};
+        String output = runSqlClient(args);
+        final URL url = getClass().getClassLoader().getResource("sql-client-help-command.out");
         final String help = FileUtils.readFileUtf8(new File(url.getFile()));
-        assertEquals(help, getStdoutString());
+
+        for (String command : help.split("\n")) {
+            assertThat(output).contains(command);
+        }
+    }
+
+    @Test
+    void testDisplayMultiLineSqlInInteractiveMode() throws Exception {
+        List<String> statements =
+                Arrays.asList(
+                        "-- define table \n"
+                                + "CREATE TABLE source ("
+                                + "id INT"
+                                + ") WITH ("
+                                + "  'connector' = 'datagen'"
+                                + "); \n",
+                        "CREATE TABLE sink ( id INT) WITH ( 'connector' = 'blackhole');");
+        String initFile = createSqlFile(statements, "init-sql.sql");
+        String[] args = new String[] {"-i", initFile};
+        String output =
+                runSqlClient(
+                        args,
+                        String.join(
+                                "\n",
+                                Arrays.asList(
+                                        "EXPLAIN STATEMENT SET",
+                                        "BEGIN",
+                                        "INSERT INTO sink SELECT * FROM source;",
+                                        "",
+                                        "INSERT INTO sink SELECT * FROM source;",
+                                        "",
+                                        "END;\n")),
+                        true);
+        assertThat(output)
+                .contains(
+                        "Flink SQL> EXPLAIN STATEMENT SET\n"
+                                + "> BEGIN\n"
+                                + "> INSERT INTO sink SELECT * FROM source;\n"
+                                + "> \n"
+                                + "> INSERT INTO sink SELECT * FROM source;\n"
+                                + "> \n"
+                                + "> END;");
+    }
+
+    @Test
+    void testExecuteSqlWithHDFSFile() {
+        String[] args = new String[] {"-f", "hdfs://path/to/file/test.sql"};
+        assertThatThrownBy(() -> runSqlClient(args))
+                .isInstanceOf(SqlClientException.class)
+                .hasMessage("SQL Client only supports to load files in local.");
+    }
+
+    @Test
+    public void testPrintEmbeddedModeHelp() throws Exception {
+        runTestCliHelp(new String[] {"embedded", "--help"}, "cli/embedded-mode-help.out");
+    }
+
+    @Test
+    public void testPrintGatewayModeHelp() throws Exception {
+        runTestCliHelp(new String[] {"gateway", "--help"}, "cli/gateway-mode-help.out");
+    }
+
+    @Test
+    public void testPrintAllModeHelp() throws Exception {
+        runTestCliHelp(new String[] {"--help"}, "cli/all-mode-help.out");
+    }
+
+    private void runTestCliHelp(String[] args, String expected) throws Exception {
+        String actual =
+                new String(
+                        Files.readAllBytes(
+                                Paths.get(
+                                        Preconditions.checkNotNull(
+                                                        SqlClientTest.class
+                                                                .getClassLoader()
+                                                                .getResource(expected))
+                                                .toURI())));
+        assertThat(runSqlClient(args)).isEqualTo(actual);
     }
 }

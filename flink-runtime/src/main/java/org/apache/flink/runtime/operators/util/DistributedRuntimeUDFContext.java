@@ -19,7 +19,7 @@
 package org.apache.flink.runtime.operators.util;
 
 import org.apache.flink.api.common.ExecutionConfig;
-import org.apache.flink.api.common.JobID;
+import org.apache.flink.api.common.JobInfo;
 import org.apache.flink.api.common.TaskInfo;
 import org.apache.flink.api.common.accumulators.Accumulator;
 import org.apache.flink.api.common.externalresource.ExternalResourceInfo;
@@ -27,7 +27,7 @@ import org.apache.flink.api.common.functions.BroadcastVariableInitializer;
 import org.apache.flink.api.common.functions.RuntimeContext;
 import org.apache.flink.api.common.functions.util.AbstractRuntimeUDFContext;
 import org.apache.flink.core.fs.Path;
-import org.apache.flink.metrics.MetricGroup;
+import org.apache.flink.metrics.groups.OperatorMetricGroup;
 import org.apache.flink.runtime.broadcast.BroadcastVariableMaterialization;
 import org.apache.flink.runtime.broadcast.InitializationTypeConflictException;
 import org.apache.flink.runtime.externalresource.ExternalResourceInfoProvider;
@@ -37,7 +37,6 @@ import org.apache.flink.util.UserCodeClassLoader;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Future;
 
@@ -49,21 +48,25 @@ public class DistributedRuntimeUDFContext extends AbstractRuntimeUDFContext {
 
     private final ExternalResourceInfoProvider externalResourceInfoProvider;
 
-    private final JobID jobID;
-
     public DistributedRuntimeUDFContext(
+            JobInfo jobInfo,
             TaskInfo taskInfo,
             UserCodeClassLoader userCodeClassLoader,
             ExecutionConfig executionConfig,
             Map<String, Future<Path>> cpTasks,
             Map<String, Accumulator<?, ?>> accumulators,
-            MetricGroup metrics,
-            ExternalResourceInfoProvider externalResourceInfoProvider,
-            JobID jobID) {
-        super(taskInfo, userCodeClassLoader, executionConfig, accumulators, cpTasks, metrics);
+            OperatorMetricGroup metrics,
+            ExternalResourceInfoProvider externalResourceInfoProvider) {
+        super(
+                jobInfo,
+                taskInfo,
+                userCodeClassLoader,
+                executionConfig,
+                accumulators,
+                cpTasks,
+                metrics);
         this.externalResourceInfoProvider =
                 Preconditions.checkNotNull(externalResourceInfoProvider);
-        this.jobID = jobID;
     }
 
     @Override
@@ -112,11 +115,6 @@ public class DistributedRuntimeUDFContext extends AbstractRuntimeUDFContext {
             throw new IllegalArgumentException(
                     "The broadcast variable with name '" + name + "' has not been set.");
         }
-    }
-
-    @Override
-    public Optional<JobID> getJobId() {
-        return Optional.of(jobID);
     }
 
     @Override

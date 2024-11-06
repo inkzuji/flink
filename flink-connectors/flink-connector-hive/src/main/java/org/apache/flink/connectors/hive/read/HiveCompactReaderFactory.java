@@ -19,19 +19,20 @@
 package org.apache.flink.connectors.hive.read;
 
 import org.apache.flink.connector.file.src.reader.BulkFormat;
+import org.apache.flink.connector.file.table.stream.compact.CompactBulkReader;
+import org.apache.flink.connector.file.table.stream.compact.CompactContext;
+import org.apache.flink.connector.file.table.stream.compact.CompactReader;
 import org.apache.flink.connectors.hive.CachedSerializedValue;
 import org.apache.flink.connectors.hive.FlinkHiveException;
 import org.apache.flink.connectors.hive.HiveTablePartition;
 import org.apache.flink.connectors.hive.JobConfWrapper;
+import org.apache.flink.core.fs.FileStatus;
 import org.apache.flink.core.fs.FileSystem;
 import org.apache.flink.core.fs.Path;
-import org.apache.flink.table.catalog.CatalogTable;
+import org.apache.flink.table.catalog.ResolvedCatalogTable;
 import org.apache.flink.table.catalog.hive.client.HiveShim;
 import org.apache.flink.table.catalog.hive.client.HiveShimLoader;
 import org.apache.flink.table.data.RowData;
-import org.apache.flink.table.filesystem.stream.compact.CompactBulkReader;
-import org.apache.flink.table.filesystem.stream.compact.CompactContext;
-import org.apache.flink.table.filesystem.stream.compact.CompactReader;
 import org.apache.flink.table.types.DataType;
 import org.apache.flink.table.types.logical.RowType;
 
@@ -39,13 +40,10 @@ import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.apache.hadoop.mapred.JobConf;
 
 import java.io.IOException;
-import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 
-import static org.apache.flink.connectors.hive.util.HivePartitionUtils.restorePartitionValueFromType;
 import static org.apache.flink.table.utils.PartitionPathUtils.extractPartitionSpecFromPath;
 
 /** The {@link CompactReader.Factory} to delegate hive bulk format. */
@@ -68,7 +66,7 @@ public class HiveCompactReaderFactory implements CompactReader.Factory<RowData> 
             StorageDescriptor sd,
             Properties properties,
             JobConf jobConf,
-            CatalogTable catalogTable,
+            ResolvedCatalogTable catalogTable,
             String hiveVersion,
             RowType producedRowType,
             boolean useMapRedReader) {
@@ -80,8 +78,9 @@ public class HiveCompactReaderFactory implements CompactReader.Factory<RowData> 
         this.properties = properties;
         this.jobConfWrapper = new JobConfWrapper(jobConf);
         this.partitionKeys = catalogTable.getPartitionKeys();
-        this.fieldNames = catalogTable.getSchema().getFieldNames();
-        this.fieldTypes = catalogTable.getSchema().getFieldDataTypes();
+        this.fieldNames = catalogTable.getResolvedSchema().getColumnNames().toArray(new String[0]);
+        this.fieldTypes =
+                catalogTable.getResolvedSchema().getColumnDataTypes().toArray(new DataType[0]);
         this.hiveVersion = hiveVersion;
         this.shim = HiveShimLoader.loadHiveShim(hiveVersion);
         this.producedRowType = producedRowType;
@@ -91,8 +90,8 @@ public class HiveCompactReaderFactory implements CompactReader.Factory<RowData> 
     @Override
     public CompactReader<RowData> create(CompactContext context) throws IOException {
         HiveSourceSplit split = createSplit(context.getPath(), context.getFileSystem());
-        HiveBulkFormatAdapter format =
-                new HiveBulkFormatAdapter(
+        HiveInputFormat format =
+                new HiveInputFormat(
                         jobConfWrapper,
                         partitionKeys,
                         fieldNames,
@@ -105,23 +104,21 @@ public class HiveCompactReaderFactory implements CompactReader.Factory<RowData> 
     }
 
     private HiveSourceSplit createSplit(Path path, FileSystem fs) throws IOException {
-        long len = fs.getFileStatus(path).getLen();
-        return new HiveSourceSplit("id", path, 0, len, new String[0], null, createPartition(path));
+        FileStatus fileStatus = fs.getFileStatus(path);
+        return new HiveSourceSplit(
+                "id",
+                path,
+                0,
+                fileStatus.getLen(),
+                fileStatus.getModificationTime(),
+                fileStatus.getLen(),
+                new String[0],
+                null,
+                createPartition(path));
     }
 
     private HiveTablePartition createPartition(Path path) {
-        Map<String, Object> partitionSpec = new LinkedHashMap<>();
-        Map<String, DataType> nameToTypes = new HashMap<>();
-        for (int i = 0; i < fieldNames.length; i++) {
-            nameToTypes.put(fieldNames[i], fieldTypes[i]);
-        }
-        for (Map.Entry<String, String> entry : extractPartitionSpecFromPath(path).entrySet()) {
-            Object partitionValue =
-                    restorePartitionValueFromType(
-                            shim, entry.getValue(), nameToTypes.get(entry.getKey()));
-            partitionSpec.put(entry.getKey(), partitionValue);
-        }
-
+        Map<String, String> partitionSpec = extractPartitionSpecFromPath(path);
         try {
             return new HiveTablePartition(sd.deserializeValue(), partitionSpec, properties);
         } catch (IOException | ClassNotFoundException e) {

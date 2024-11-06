@@ -19,63 +19,53 @@
 
 package org.apache.flink.runtime.scheduler;
 
-import org.apache.flink.api.common.JobID;
-import org.apache.flink.api.common.time.Time;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.runtime.jobgraph.JobType;
 import org.apache.flink.runtime.jobmaster.slotpool.SlotPool;
-import org.apache.flink.runtime.jobmaster.slotpool.TestingSlotPoolImpl;
+import org.apache.flink.runtime.jobmaster.slotpool.SlotPoolUtils;
 import org.apache.flink.runtime.scheduler.strategy.PipelinedRegionSchedulingStrategy;
-import org.apache.flink.util.TestLogger;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
-import static org.apache.flink.core.testutils.FlinkMatchers.containsMessage;
-import static org.hamcrest.Matchers.instanceOf;
-import static org.junit.Assert.assertThat;
-import static org.junit.Assert.fail;
+import java.time.Duration;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Tests for the factory method {@link DefaultSchedulerComponents#createSchedulerComponents(
- * JobType, boolean, Configuration, SlotPool, Time)}.
+ * JobType, boolean, Configuration, SlotPool, Duration)}.
  */
-public class DefaultSchedulerComponentsFactoryTest extends TestLogger {
+class DefaultSchedulerComponentsFactoryTest {
 
     @Test
-    public void testCreatingPipelinedSchedulingStrategyFactory() {
+    void testCreatingPipelinedSchedulingStrategyFactory() {
 
         final DefaultSchedulerComponents components =
                 createSchedulerComponents(new Configuration());
-        assertThat(
-                components.getSchedulingStrategyFactory(),
-                instanceOf(PipelinedRegionSchedulingStrategy.Factory.class));
-        assertThat(
-                components.getAllocatorFactory(),
-                instanceOf(SlotSharingExecutionSlotAllocatorFactory.class));
+        assertThat(components.getSchedulingStrategyFactory())
+                .isInstanceOf(PipelinedRegionSchedulingStrategy.Factory.class);
+        assertThat(components.getAllocatorFactory())
+                .isInstanceOf(SlotSharingExecutionSlotAllocatorFactory.class);
     }
 
     @Test
-    public void testCreatingPipelinedRegionSchedulingStrategyFactoryByDefault() {
+    void testCreatingPipelinedRegionSchedulingStrategyFactoryByDefault() {
         final DefaultSchedulerComponents components =
                 createSchedulerComponents(new Configuration());
-        assertThat(
-                components.getSchedulingStrategyFactory(),
-                instanceOf(PipelinedRegionSchedulingStrategy.Factory.class));
+        assertThat(components.getSchedulingStrategyFactory())
+                .isInstanceOf(PipelinedRegionSchedulingStrategy.Factory.class);
     }
 
     @Test
-    public void testCreatingPipelinedRegionSchedulingStrategyFactoryWithApproximateLocalRecovery() {
+    void testCreatingPipelinedRegionSchedulingStrategyFactoryWithApproximateLocalRecovery() {
         final Configuration configuration = new Configuration();
 
-        try {
-            createSchedulerComponents(configuration, true, JobType.STREAMING);
-            fail("expected failure");
-        } catch (IllegalArgumentException e) {
-            assertThat(
-                    e,
-                    containsMessage(
-                            "Approximate local recovery can not be used together with PipelinedRegionScheduler for now"));
-        }
+        assertThatThrownBy(() -> createSchedulerComponents(configuration, true, JobType.STREAMING))
+                .withFailMessage("expected failure")
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining(
+                        "Approximate local recovery can not be used together with PipelinedRegionScheduler for now");
     }
 
     private static DefaultSchedulerComponents createSchedulerComponents(
@@ -91,7 +81,7 @@ public class DefaultSchedulerComponentsFactoryTest extends TestLogger {
                 jobType,
                 iApproximateLocalRecoveryEnabled,
                 configuration,
-                new TestingSlotPoolImpl(new JobID()),
-                Time.milliseconds(10L));
+                SlotPoolUtils.createDeclarativeSlotPoolBridge(),
+                Duration.ofMillis(10L));
     }
 }

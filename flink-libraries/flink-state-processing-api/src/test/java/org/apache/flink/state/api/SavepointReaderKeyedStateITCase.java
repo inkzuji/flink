@@ -18,17 +18,19 @@
 
 package org.apache.flink.state.api;
 
+import org.apache.flink.api.common.functions.OpenContext;
 import org.apache.flink.api.common.state.ValueState;
 import org.apache.flink.api.common.state.ValueStateDescriptor;
 import org.apache.flink.api.common.typeinfo.Types;
-import org.apache.flink.api.java.ExecutionEnvironment;
+import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.runtime.state.StateBackend;
 import org.apache.flink.state.api.functions.KeyedStateReaderFunction;
+import org.apache.flink.state.api.utils.JobResultRetriever;
 import org.apache.flink.state.api.utils.SavepointTestBase;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.KeyedProcessFunction;
-import org.apache.flink.streaming.api.functions.sink.DiscardingSink;
+import org.apache.flink.streaming.api.functions.sink.v2.DiscardingSink;
 import org.apache.flink.util.Collector;
 
 import org.junit.Assert;
@@ -52,33 +54,30 @@ public abstract class SavepointReaderKeyedStateITCase<B extends StateBackend>
     private static final List<Pojo> elements =
             Arrays.asList(Pojo.of(1, 1), Pojo.of(2, 2), Pojo.of(3, 3));
 
-    protected abstract B getStateBackend();
+    protected abstract Tuple2<Configuration, B> getStateBackendTuple();
 
     @Test
     public void testUserKeyedStateReader() throws Exception {
-        String savepointPath =
-                takeSavepoint(
-                        elements,
-                        source -> {
-                            StreamExecutionEnvironment env =
-                                    StreamExecutionEnvironment.getExecutionEnvironment();
-                            env.setStateBackend(getStateBackend());
-                            env.setParallelism(4);
+        Tuple2<Configuration, B> backendTuple = getStateBackendTuple();
+        StreamExecutionEnvironment env =
+                StreamExecutionEnvironment.getExecutionEnvironment(backendTuple.f0);
+        env.setParallelism(4);
 
-                            env.addSource(source)
-                                    .rebalance()
-                                    .keyBy(id -> id.key)
-                                    .process(new KeyedStatefulOperator())
-                                    .uid(uid)
-                                    .addSink(new DiscardingSink<>());
+        env.addSource(createSource(elements))
+                .returns(Pojo.class)
+                .rebalance()
+                .keyBy(id -> id.key)
+                .process(new KeyedStatefulOperator())
+                .uid(uid)
+                .sinkTo(new DiscardingSink<>());
 
-                            return env;
-                        });
+        String savepointPath = takeSavepoint(env);
 
-        ExecutionEnvironment batchEnv = ExecutionEnvironment.getExecutionEnvironment();
-        ExistingSavepoint savepoint = Savepoint.load(batchEnv, savepointPath, getStateBackend());
+        SavepointReader savepoint = SavepointReader.read(env, savepointPath, backendTuple.f1);
 
-        List<Pojo> results = savepoint.readKeyedState(uid, new Reader()).collect();
+        List<Pojo> results =
+                JobResultRetriever.collect(
+                        savepoint.readKeyedState(OperatorIdentifier.forUid(uid), new Reader()));
 
         Set<Pojo> expected = new HashSet<>(elements);
 
@@ -87,11 +86,10 @@ public abstract class SavepointReaderKeyedStateITCase<B extends StateBackend>
     }
 
     private static class KeyedStatefulOperator extends KeyedProcessFunction<Integer, Pojo, Void> {
-
         private transient ValueState<Integer> state;
 
         @Override
-        public void open(Configuration parameters) {
+        public void open(OpenContext openContext) {
             state = getRuntimeContext().getState(valueState);
         }
 
@@ -110,7 +108,7 @@ public abstract class SavepointReaderKeyedStateITCase<B extends StateBackend>
         private transient ValueState<Integer> state;
 
         @Override
-        public void open(Configuration parameters) {
+        public void open(OpenContext openContext) {
             state = getRuntimeContext().getState(valueState);
         }
 

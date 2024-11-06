@@ -269,6 +269,10 @@ public class Types {
      *
      * <p>The generic types for all fields of the POJO can be defined in a hierarchy of subclasses.
      *
+     * <p>Java Record classes can also be used as valid POJOs (even though they don't fulfill some
+     * of the above criteria). In this case Flink will use the record canonical constructor to
+     * create the objects.
+     *
      * <p>If Flink's type analyzer is unable to extract a valid POJO type information with type
      * information for all fields, an {@link
      * org.apache.flink.api.common.functions.InvalidTypesException} is thrown. Alternatively, you
@@ -288,13 +292,17 @@ public class Types {
      * Returns type information for a POJO (Plain Old Java Object) and allows to specify all fields
      * manually.
      *
-     * <p>A POJO class is public and standalone (no non-static inner class). It has a public
-     * no-argument constructor. All non-static, non-transient fields in the class (and all
-     * superclasses) are either public (and non-final) or have a public getter and a setter method
-     * that follows the Java beans naming conventions for getters and setters.
+     * <p>A type is considered a FLink POJO type, if it fulfills the conditions below.
      *
-     * <p>A POJO is a fixed-length, null-aware composite type with non-deterministic field order.
-     * Every field can be null independent of the field's type.
+     * <ul>
+     *   <li>It is a public class, and standalone (not a non-static inner class)
+     *   <li>It has a public no-argument constructor.
+     *   <li>All non-static, non-transient fields in the class (and all superclasses) are either
+     *       public (and non-final) or have a public getter and a setter method that follows the
+     *       Java beans naming conventions for getters and setters.
+     *   <li>It is a fixed-length, null-aware composite type with non-deterministic field order.
+     *       Every field can be null independent of the field's type.
+     * </ul>
      *
      * <p>The generic types for all fields of the POJO can be defined in a hierarchy of subclasses.
      *
@@ -315,7 +323,7 @@ public class Types {
             final Field f = TypeExtractor.getDeclaredField(pojoClass, field.getKey());
             if (f == null) {
                 throw new InvalidTypesException(
-                        "Field '" + field.getKey() + "'could not be accessed.");
+                        "Field '" + field.getKey() + "' could not be accessed.");
             }
             pojoFields.add(new PojoField(f, field.getValue()));
         }

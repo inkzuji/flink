@@ -18,23 +18,17 @@
 
 package org.apache.flink.api.common.eventtime;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import java.util.UUID;
 
-import static org.apache.flink.api.common.eventtime.WatermarkMatchers.watermark;
-import static org.hamcrest.CoreMatchers.is;
-import static org.hamcrest.CoreMatchers.nullValue;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertThat;
-import static org.junit.Assert.assertTrue;
+import static org.assertj.core.api.Assertions.assertThat;
 
 /** Tests for the {@link WatermarkOutputMultiplexer}. */
-public class WatermarkOutputMultiplexerTest {
+class WatermarkOutputMultiplexerTest {
 
     @Test
-    public void singleImmediateWatermark() {
+    void singleImmediateWatermark() {
         TestingWatermarkOutput underlyingWatermarkOutput = createTestingWatermarkOutput();
         WatermarkOutputMultiplexer multiplexer =
                 new WatermarkOutputMultiplexer(underlyingWatermarkOutput);
@@ -43,12 +37,12 @@ public class WatermarkOutputMultiplexerTest {
 
         watermarkOutput.emitWatermark(new Watermark(0));
 
-        assertThat(underlyingWatermarkOutput.lastWatermark(), is(watermark(0)));
-        assertThat(underlyingWatermarkOutput.isIdle(), is(false));
+        assertThat(underlyingWatermarkOutput.lastWatermark()).isEqualTo(new Watermark(0));
+        assertThat(underlyingWatermarkOutput.isIdle()).isFalse();
     }
 
     @Test
-    public void singleImmediateIdleness() {
+    void singleImmediateIdleness() {
         TestingWatermarkOutput underlyingWatermarkOutput = createTestingWatermarkOutput();
         WatermarkOutputMultiplexer multiplexer =
                 new WatermarkOutputMultiplexer(underlyingWatermarkOutput);
@@ -57,12 +51,12 @@ public class WatermarkOutputMultiplexerTest {
 
         watermarkOutput.markIdle();
 
-        assertThat(underlyingWatermarkOutput.lastWatermark(), nullValue());
-        assertThat(underlyingWatermarkOutput.isIdle(), is(true));
+        assertThat(underlyingWatermarkOutput.lastWatermark()).isNull();
+        assertThat(underlyingWatermarkOutput.isIdle()).isTrue();
     }
 
     @Test
-    public void singleImmediateWatermarkAfterIdleness() {
+    void singleImmediateWatermarkAfterIdleness() {
         TestingWatermarkOutput underlyingWatermarkOutput = createTestingWatermarkOutput();
         WatermarkOutputMultiplexer multiplexer =
                 new WatermarkOutputMultiplexer(underlyingWatermarkOutput);
@@ -70,16 +64,16 @@ public class WatermarkOutputMultiplexerTest {
         WatermarkOutput watermarkOutput = createImmediateOutput(multiplexer);
 
         watermarkOutput.markIdle();
-        assertThat(underlyingWatermarkOutput.isIdle(), is(true));
+        assertThat(underlyingWatermarkOutput.isIdle()).isTrue();
 
         watermarkOutput.emitWatermark(new Watermark(0));
 
-        assertThat(underlyingWatermarkOutput.lastWatermark(), is(watermark(0)));
-        assertThat(underlyingWatermarkOutput.isIdle(), is(false));
+        assertThat(underlyingWatermarkOutput.lastWatermark()).isEqualTo(new Watermark(0));
+        assertThat(underlyingWatermarkOutput.isIdle()).isFalse();
     }
 
     @Test
-    public void multipleImmediateWatermark() {
+    void multipleImmediateWatermark() {
         TestingWatermarkOutput underlyingWatermarkOutput = createTestingWatermarkOutput();
         WatermarkOutputMultiplexer multiplexer =
                 new WatermarkOutputMultiplexer(underlyingWatermarkOutput);
@@ -92,12 +86,12 @@ public class WatermarkOutputMultiplexerTest {
         watermarkOutput2.emitWatermark(new Watermark(5));
         watermarkOutput3.markIdle();
 
-        assertThat(underlyingWatermarkOutput.lastWatermark(), is(watermark(2)));
-        assertThat(underlyingWatermarkOutput.isIdle(), is(false));
+        assertThat(underlyingWatermarkOutput.lastWatermark()).isEqualTo(new Watermark(2));
+        assertThat(underlyingWatermarkOutput.isIdle()).isFalse();
     }
 
     @Test
-    public void whenImmediateOutputBecomesIdleWatermarkAdvances() {
+    void whenImmediateOutputBecomesIdleWatermarkAdvances() {
         TestingWatermarkOutput underlyingWatermarkOutput = createTestingWatermarkOutput();
         WatermarkOutputMultiplexer multiplexer =
                 new WatermarkOutputMultiplexer(underlyingWatermarkOutput);
@@ -108,15 +102,15 @@ public class WatermarkOutputMultiplexerTest {
         watermarkOutput1.emitWatermark(new Watermark(2));
         watermarkOutput2.emitWatermark(new Watermark(5));
 
-        assertThat(underlyingWatermarkOutput.lastWatermark(), is(watermark(2)));
+        assertThat(underlyingWatermarkOutput.lastWatermark()).isEqualTo(new Watermark(2));
 
         watermarkOutput1.markIdle();
 
-        assertThat(underlyingWatermarkOutput.lastWatermark(), is(watermark(5)));
+        assertThat(underlyingWatermarkOutput.lastWatermark()).isEqualTo(new Watermark(5));
     }
 
     @Test
-    public void combinedWatermarkDoesNotRegressWhenIdleOutputRegresses() {
+    void combinedWatermarkDoesNotRegressWhenIdleOutputRegresses() {
         TestingWatermarkOutput underlyingWatermarkOutput = createTestingWatermarkOutput();
         WatermarkOutputMultiplexer multiplexer =
                 new WatermarkOutputMultiplexer(underlyingWatermarkOutput);
@@ -128,31 +122,35 @@ public class WatermarkOutputMultiplexerTest {
         watermarkOutput2.emitWatermark(new Watermark(5));
         watermarkOutput1.markIdle();
 
-        assertThat(underlyingWatermarkOutput.lastWatermark(), is(watermark(5)));
+        assertThat(underlyingWatermarkOutput.lastWatermark()).isEqualTo(new Watermark(5));
 
         watermarkOutput1.emitWatermark(new Watermark(3));
 
-        assertThat(underlyingWatermarkOutput.lastWatermark(), is(watermark(5)));
+        assertThat(underlyingWatermarkOutput.lastWatermark()).isEqualTo(new Watermark(5));
     }
 
     /**
      * This test makes sure that we don't output any update if there are zero outputs. Due to how
      * aggregation of deferred updates in the KafkaConsumer works we had a bug there that caused a
      * Long.MAX_VALUE watermark to be emitted in case of zero partitions.
+     *
+     * <p>Additionally it verifies that the combined output is not IDLE during the initial phase
+     * when there are no splits assigned and the combined watermark is at its initial value.
      */
     @Test
-    public void noCombinedDeferredUpdateWhenWeHaveZeroOutputs() {
+    void noCombinedDeferredUpdateWhenWeHaveZeroOutputs() {
         TestingWatermarkOutput underlyingWatermarkOutput = createTestingWatermarkOutput();
         WatermarkOutputMultiplexer multiplexer =
                 new WatermarkOutputMultiplexer(underlyingWatermarkOutput);
 
         multiplexer.onPeriodicEmit();
 
-        assertThat(underlyingWatermarkOutput.lastWatermark(), is(nullValue()));
+        assertThat(underlyingWatermarkOutput.lastWatermark()).isNull();
+        assertThat(underlyingWatermarkOutput.isIdle()).isFalse();
     }
 
     @Test
-    public void deferredOutputDoesNotImmediatelyAdvanceWatermark() {
+    void deferredOutputDoesNotImmediatelyAdvanceWatermark() {
         TestingWatermarkOutput underlyingWatermarkOutput = createTestingWatermarkOutput();
         WatermarkOutputMultiplexer multiplexer =
                 new WatermarkOutputMultiplexer(underlyingWatermarkOutput);
@@ -163,15 +161,15 @@ public class WatermarkOutputMultiplexerTest {
         watermarkOutput1.emitWatermark(new Watermark(0));
         watermarkOutput2.emitWatermark(new Watermark(1));
 
-        assertThat(underlyingWatermarkOutput.lastWatermark(), nullValue());
+        assertThat(underlyingWatermarkOutput.lastWatermark()).isNull();
 
         multiplexer.onPeriodicEmit();
 
-        assertThat(underlyingWatermarkOutput.lastWatermark(), is(watermark(0)));
+        assertThat(underlyingWatermarkOutput.lastWatermark()).isEqualTo(new Watermark(0));
     }
 
     @Test
-    public void singleDeferredWatermark() {
+    void singleDeferredWatermark() {
         TestingWatermarkOutput underlyingWatermarkOutput = createTestingWatermarkOutput();
         WatermarkOutputMultiplexer multiplexer =
                 new WatermarkOutputMultiplexer(underlyingWatermarkOutput);
@@ -181,12 +179,12 @@ public class WatermarkOutputMultiplexerTest {
         watermarkOutput.emitWatermark(new Watermark(0));
         multiplexer.onPeriodicEmit();
 
-        assertThat(underlyingWatermarkOutput.lastWatermark(), is(watermark(0)));
-        assertThat(underlyingWatermarkOutput.isIdle(), is(false));
+        assertThat(underlyingWatermarkOutput.lastWatermark()).isEqualTo(new Watermark(0));
+        assertThat(underlyingWatermarkOutput.isIdle()).isFalse();
     }
 
     @Test
-    public void singleDeferredIdleness() {
+    void singleDeferredIdleness() {
         TestingWatermarkOutput underlyingWatermarkOutput = createTestingWatermarkOutput();
         WatermarkOutputMultiplexer multiplexer =
                 new WatermarkOutputMultiplexer(underlyingWatermarkOutput);
@@ -196,12 +194,12 @@ public class WatermarkOutputMultiplexerTest {
         watermarkOutput.markIdle();
         multiplexer.onPeriodicEmit();
 
-        assertThat(underlyingWatermarkOutput.lastWatermark(), nullValue());
-        assertThat(underlyingWatermarkOutput.isIdle(), is(true));
+        assertThat(underlyingWatermarkOutput.lastWatermark()).isNull();
+        assertThat(underlyingWatermarkOutput.isIdle()).isTrue();
     }
 
     @Test
-    public void singleDeferredWatermarkAfterIdleness() {
+    void singleDeferredWatermarkAfterIdleness() {
         TestingWatermarkOutput underlyingWatermarkOutput = createTestingWatermarkOutput();
         WatermarkOutputMultiplexer multiplexer =
                 new WatermarkOutputMultiplexer(underlyingWatermarkOutput);
@@ -211,17 +209,17 @@ public class WatermarkOutputMultiplexerTest {
         watermarkOutput.markIdle();
         multiplexer.onPeriodicEmit();
 
-        assertThat(underlyingWatermarkOutput.isIdle(), is(true));
+        assertThat(underlyingWatermarkOutput.isIdle()).isTrue();
 
         watermarkOutput.emitWatermark(new Watermark(0));
         multiplexer.onPeriodicEmit();
 
-        assertThat(underlyingWatermarkOutput.lastWatermark(), is(watermark(0)));
-        assertThat(underlyingWatermarkOutput.isIdle(), is(false));
+        assertThat(underlyingWatermarkOutput.lastWatermark()).isEqualTo(new Watermark(0));
+        assertThat(underlyingWatermarkOutput.isIdle()).isFalse();
     }
 
     @Test
-    public void multipleDeferredWatermark() {
+    void multipleDeferredWatermark() {
         TestingWatermarkOutput underlyingWatermarkOutput = createTestingWatermarkOutput();
         WatermarkOutputMultiplexer multiplexer =
                 new WatermarkOutputMultiplexer(underlyingWatermarkOutput);
@@ -236,12 +234,12 @@ public class WatermarkOutputMultiplexerTest {
 
         multiplexer.onPeriodicEmit();
 
-        assertThat(underlyingWatermarkOutput.lastWatermark(), is(watermark(2)));
-        assertThat(underlyingWatermarkOutput.isIdle(), is(false));
+        assertThat(underlyingWatermarkOutput.lastWatermark()).isEqualTo(new Watermark(2));
+        assertThat(underlyingWatermarkOutput.isIdle()).isFalse();
     }
 
     @Test
-    public void immediateUpdatesTakeDeferredUpdatesIntoAccount() {
+    void immediateUpdatesTakeDeferredUpdatesIntoAccount() {
         TestingWatermarkOutput underlyingWatermarkOutput = createTestingWatermarkOutput();
         WatermarkOutputMultiplexer multiplexer =
                 new WatermarkOutputMultiplexer(underlyingWatermarkOutput);
@@ -251,129 +249,150 @@ public class WatermarkOutputMultiplexerTest {
 
         deferredOutput.emitWatermark(new Watermark(5));
 
-        assertThat(underlyingWatermarkOutput.lastWatermark(), is(nullValue()));
+        assertThat(underlyingWatermarkOutput.lastWatermark()).isNull();
 
         immediateOutput.emitWatermark(new Watermark(2));
 
-        assertThat(underlyingWatermarkOutput.lastWatermark(), is(watermark(2)));
+        assertThat(underlyingWatermarkOutput.lastWatermark()).isEqualTo(new Watermark(2));
     }
 
     @Test
-    public void immediateUpdateOnSameOutputAsDeferredUpdateDoesNotRegress() {
+    void immediateUpdateOnSameOutputAsDeferredUpdateDoesNotRegress() {
         TestingWatermarkOutput underlyingWatermarkOutput = createTestingWatermarkOutput();
         WatermarkOutputMultiplexer multiplexer =
                 new WatermarkOutputMultiplexer(underlyingWatermarkOutput);
 
         final String id = "test-id";
-        multiplexer.registerNewOutput(id);
+        multiplexer.registerNewOutput(id, watermark -> {});
         WatermarkOutput immediateOutput = multiplexer.getImmediateOutput(id);
         WatermarkOutput deferredOutput = multiplexer.getDeferredOutput(id);
 
         deferredOutput.emitWatermark(new Watermark(5));
         multiplexer.onPeriodicEmit();
 
-        assertThat(underlyingWatermarkOutput.lastWatermark(), is(watermark(5)));
+        assertThat(underlyingWatermarkOutput.lastWatermark()).isEqualTo(new Watermark(5));
 
         immediateOutput.emitWatermark(new Watermark(2));
 
-        assertThat(underlyingWatermarkOutput.lastWatermark(), is(watermark(5)));
+        assertThat(underlyingWatermarkOutput.lastWatermark()).isEqualTo(new Watermark(5));
 
         multiplexer.onPeriodicEmit();
-        assertThat(underlyingWatermarkOutput.lastWatermark(), is(watermark(5)));
+        assertThat(underlyingWatermarkOutput.lastWatermark()).isEqualTo(new Watermark(5));
     }
 
     @Test
-    public void lowerImmediateUpdateOnSameOutputDoesNotEmitCombinedUpdate() {
+    void lowerImmediateUpdateOnSameOutputDoesNotEmitCombinedUpdate() {
         TestingWatermarkOutput underlyingWatermarkOutput = createTestingWatermarkOutput();
         WatermarkOutputMultiplexer multiplexer =
                 new WatermarkOutputMultiplexer(underlyingWatermarkOutput);
 
         final String id = "1234-test";
-        multiplexer.registerNewOutput(id);
+        multiplexer.registerNewOutput(id, watermark -> {});
         WatermarkOutput immediateOutput = multiplexer.getImmediateOutput(id);
         WatermarkOutput deferredOutput = multiplexer.getDeferredOutput(id);
 
         deferredOutput.emitWatermark(new Watermark(5));
         immediateOutput.emitWatermark(new Watermark(2));
 
-        assertThat(underlyingWatermarkOutput.lastWatermark(), is(nullValue()));
+        assertThat(underlyingWatermarkOutput.lastWatermark()).isNull();
     }
 
     @Test
-    public void testRemoveUnblocksWatermarks() {
+    void testRemoveUnblocksWatermarks() {
         final TestingWatermarkOutput underlyingWatermarkOutput = createTestingWatermarkOutput();
         final WatermarkOutputMultiplexer multiplexer =
                 new WatermarkOutputMultiplexer(underlyingWatermarkOutput);
         final long lowTimestamp = 156765L;
         final long highTimestamp = lowTimestamp + 10;
 
-        multiplexer.registerNewOutput("lower");
-        multiplexer.registerNewOutput("higher");
+        multiplexer.registerNewOutput("lower", watermark -> {});
+        multiplexer.registerNewOutput("higher", watermark -> {});
         multiplexer.getImmediateOutput("lower").emitWatermark(new Watermark(lowTimestamp));
 
         multiplexer.unregisterOutput("lower");
         multiplexer.getImmediateOutput("higher").emitWatermark(new Watermark(highTimestamp));
 
-        assertEquals(highTimestamp, underlyingWatermarkOutput.lastWatermark().getTimestamp());
+        assertThat(underlyingWatermarkOutput.lastWatermark().getTimestamp())
+                .isEqualTo(highTimestamp);
     }
 
     @Test
-    public void testRemoveOfLowestDoesNotImmediatelyAdvanceWatermark() {
+    void testRemoveOfLowestDoesNotImmediatelyAdvanceWatermark() {
         final TestingWatermarkOutput underlyingWatermarkOutput = createTestingWatermarkOutput();
         final WatermarkOutputMultiplexer multiplexer =
                 new WatermarkOutputMultiplexer(underlyingWatermarkOutput);
         final long lowTimestamp = -4343L;
         final long highTimestamp = lowTimestamp + 10;
 
-        multiplexer.registerNewOutput("lower");
-        multiplexer.registerNewOutput("higher");
+        multiplexer.registerNewOutput("lower", watermark -> {});
+        multiplexer.registerNewOutput("higher", watermark -> {});
         multiplexer.getImmediateOutput("lower").emitWatermark(new Watermark(lowTimestamp));
         multiplexer.getImmediateOutput("higher").emitWatermark(new Watermark(highTimestamp));
 
         multiplexer.unregisterOutput("lower");
 
-        assertEquals(lowTimestamp, underlyingWatermarkOutput.lastWatermark().getTimestamp());
+        assertThat(underlyingWatermarkOutput.lastWatermark().getTimestamp())
+                .isEqualTo(lowTimestamp);
     }
 
     @Test
-    public void testRemoveOfHighestDoesNotRetractWatermark() {
+    void testRemoveOfHighestDoesNotRetractWatermark() {
         final TestingWatermarkOutput underlyingWatermarkOutput = createTestingWatermarkOutput();
         final WatermarkOutputMultiplexer multiplexer =
                 new WatermarkOutputMultiplexer(underlyingWatermarkOutput);
         final long lowTimestamp = 1L;
         final long highTimestamp = 2L;
 
-        multiplexer.registerNewOutput("higher");
+        multiplexer.registerNewOutput("higher", watermark -> {});
         multiplexer.getImmediateOutput("higher").emitWatermark(new Watermark(highTimestamp));
         multiplexer.unregisterOutput("higher");
 
-        multiplexer.registerNewOutput("lower");
+        multiplexer.registerNewOutput("lower", watermark -> {});
         multiplexer.getImmediateOutput("lower").emitWatermark(new Watermark(lowTimestamp));
 
-        assertEquals(highTimestamp, underlyingWatermarkOutput.lastWatermark().getTimestamp());
+        assertThat(underlyingWatermarkOutput.lastWatermark().getTimestamp())
+                .isEqualTo(highTimestamp);
     }
 
     @Test
-    public void testRemoveRegisteredReturnValue() {
+    void testRemoveRegisteredReturnValue() {
         final TestingWatermarkOutput underlyingWatermarkOutput = createTestingWatermarkOutput();
         final WatermarkOutputMultiplexer multiplexer =
                 new WatermarkOutputMultiplexer(underlyingWatermarkOutput);
-        multiplexer.registerNewOutput("does-exist");
+        multiplexer.registerNewOutput("does-exist", watermark -> {});
 
         final boolean unregistered = multiplexer.unregisterOutput("does-exist");
 
-        assertTrue(unregistered);
+        assertThat(unregistered).isTrue();
     }
 
     @Test
-    public void testRemoveNotRegisteredReturnValue() {
+    void testRemoveNotRegisteredReturnValue() {
         final TestingWatermarkOutput underlyingWatermarkOutput = createTestingWatermarkOutput();
         final WatermarkOutputMultiplexer multiplexer =
                 new WatermarkOutputMultiplexer(underlyingWatermarkOutput);
 
         final boolean unregistered = multiplexer.unregisterOutput("does-not-exist");
 
-        assertFalse(unregistered);
+        assertThat(unregistered).isFalse();
+    }
+
+    @Test
+    void testNotEmittingIdleAfterAllSplitsRemoved() {
+        final TestingWatermarkOutput underlyingWatermarkOutput = createTestingWatermarkOutput();
+        final WatermarkOutputMultiplexer multiplexer =
+                new WatermarkOutputMultiplexer(underlyingWatermarkOutput);
+
+        Watermark emittedWatermark = new Watermark(1);
+        final String id = UUID.randomUUID().toString();
+        multiplexer.registerNewOutput(id, watermark -> {});
+        WatermarkOutput immediateOutput = multiplexer.getImmediateOutput(id);
+        immediateOutput.emitWatermark(emittedWatermark);
+        multiplexer.unregisterOutput(id);
+
+        multiplexer.onPeriodicEmit();
+        assertThat(underlyingWatermarkOutput.lastWatermark()).isEqualTo(emittedWatermark);
+        assertThat(underlyingWatermarkOutput.isIdle()).isFalse();
     }
 
     /**
@@ -382,7 +401,7 @@ public class WatermarkOutputMultiplexerTest {
      */
     private static WatermarkOutput createImmediateOutput(WatermarkOutputMultiplexer multiplexer) {
         final String id = UUID.randomUUID().toString();
-        multiplexer.registerNewOutput(id);
+        multiplexer.registerNewOutput(id, watermark -> {});
         return multiplexer.getImmediateOutput(id);
     }
 
@@ -392,7 +411,7 @@ public class WatermarkOutputMultiplexerTest {
      */
     private static WatermarkOutput createDeferredOutput(WatermarkOutputMultiplexer multiplexer) {
         final String id = UUID.randomUUID().toString();
-        multiplexer.registerNewOutput(id);
+        multiplexer.registerNewOutput(id, watermark -> {});
         return multiplexer.getDeferredOutput(id);
     }
 

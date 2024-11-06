@@ -20,34 +20,35 @@ package org.apache.flink.streaming.tests;
 
 import org.apache.flink.api.common.functions.RichFlatMapFunction;
 import org.apache.flink.api.common.functions.RuntimeContext;
-import org.apache.flink.api.common.restartstrategy.RestartStrategies;
 import org.apache.flink.api.common.state.CheckpointListener;
 import org.apache.flink.api.common.state.ListState;
 import org.apache.flink.api.common.state.ListStateDescriptor;
 import org.apache.flink.api.common.state.ValueState;
 import org.apache.flink.api.common.state.ValueStateDescriptor;
 import org.apache.flink.api.java.functions.KeySelector;
-import org.apache.flink.api.java.utils.ParameterTool;
-import org.apache.flink.contrib.streaming.state.EmbeddedRocksDBStateBackend;
+import org.apache.flink.configuration.CheckpointingOptions;
+import org.apache.flink.configuration.Configuration;
+import org.apache.flink.configuration.ExternalizedCheckpointRetention;
+import org.apache.flink.configuration.RestartStrategyOptions;
+import org.apache.flink.configuration.StateBackendOptions;
 import org.apache.flink.runtime.state.FunctionInitializationContext;
 import org.apache.flink.runtime.state.FunctionSnapshotContext;
-import org.apache.flink.runtime.state.hashmap.HashMapStateBackend;
 import org.apache.flink.streaming.api.checkpoint.CheckpointedFunction;
-import org.apache.flink.streaming.api.environment.CheckpointConfig;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
-import org.apache.flink.streaming.api.functions.sink.PrintSinkFunction;
-import org.apache.flink.streaming.api.functions.source.RichParallelSourceFunction;
+import org.apache.flink.streaming.api.functions.sink.legacy.PrintSinkFunction;
+import org.apache.flink.streaming.api.functions.source.legacy.RichParallelSourceFunction;
 import org.apache.flink.streaming.api.operators.StreamingRuntimeContext;
 import org.apache.flink.util.Collector;
+import org.apache.flink.util.ParameterTool;
 import org.apache.flink.util.Preconditions;
 
 import org.apache.commons.lang3.RandomStringUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.Serializable;
+import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -70,8 +71,6 @@ import java.util.Set;
  *       default <code>file</code>.
  *   <li>killJvmOnFail: flag that determines whether or not an artificial failure induced by the
  *       test kills the JVM or not.
- *   <li>asyncCheckpoints: flag for async checkpoints with file state backend, default <code>true
- *       </code>.
  *   <li>incrementalCheckpoints: flag for incremental checkpoint with rocks state backend, default
  *       <code>false</code>.
  *   <li>delay: sleep delay to throttle down the production of the source, default 0.
@@ -82,9 +81,6 @@ import java.util.Set;
  */
 public class StickyAllocationAndLocalRecoveryTestJob {
 
-    private static final Logger LOG =
-            LoggerFactory.getLogger(StickyAllocationAndLocalRecoveryTestJob.class);
-
     public static void main(String[] args) throws Exception {
 
         final ParameterTool pt = ParameterTool.fromArgs(args);
@@ -94,27 +90,37 @@ public class StickyAllocationAndLocalRecoveryTestJob {
         env.setParallelism(pt.getInt("parallelism", 1));
         env.setMaxParallelism(pt.getInt("maxParallelism", pt.getInt("parallelism", 1)));
         env.enableCheckpointing(pt.getInt("checkpointInterval", 1000));
-        env.setRestartStrategy(
-                RestartStrategies.fixedDelayRestart(
-                        Integer.MAX_VALUE, pt.getInt("restartDelay", 0)));
+
+        Configuration configuration = new Configuration();
+        configuration.set(RestartStrategyOptions.RESTART_STRATEGY, "fixed-delay");
+        configuration.set(
+                RestartStrategyOptions.RESTART_STRATEGY_FIXED_DELAY_ATTEMPTS, Integer.MAX_VALUE);
+        configuration.set(
+                RestartStrategyOptions.RESTART_STRATEGY_FIXED_DELAY_DELAY,
+                Duration.ofMillis(pt.getInt("restartDelay", 0)));
+        String checkpointDir = pt.getRequired("checkpointDir");
+        configuration.set(CheckpointingOptions.CHECKPOINTS_DIRECTORY, checkpointDir);
+
+        env.configure(configuration);
         if (pt.getBoolean("externalizedCheckpoints", false)) {
             env.getCheckpointConfig()
-                    .enableExternalizedCheckpoints(
-                            CheckpointConfig.ExternalizedCheckpointCleanup.RETAIN_ON_CANCELLATION);
+                    .setExternalizedCheckpointRetention(
+                            ExternalizedCheckpointRetention.RETAIN_ON_CANCELLATION);
         }
-
-        String checkpointDir = pt.getRequired("checkpointDir");
-        env.getCheckpointConfig().setCheckpointStorage(checkpointDir);
 
         boolean killJvmOnFail = pt.getBoolean("killJvmOnFail", false);
 
         String stateBackend = pt.get("stateBackend", "hashmap");
         if ("hashmap".equals(stateBackend)) {
-            boolean asyncCheckpoints = pt.getBoolean("asyncCheckpoints", true);
-            env.setStateBackend(new HashMapStateBackend(asyncCheckpoints));
+            env.configure(new Configuration().set(StateBackendOptions.STATE_BACKEND, "hashmap"));
         } else if ("rocks".equals(stateBackend)) {
             boolean incrementalCheckpoints = pt.getBoolean("incrementalCheckpoints", false);
-            env.setStateBackend(new EmbeddedRocksDBStateBackend(incrementalCheckpoints));
+            env.configure(
+                    new Configuration()
+                            .set(StateBackendOptions.STATE_BACKEND, "rocksdb")
+                            .set(
+                                    CheckpointingOptions.INCREMENTAL_CHECKPOINTS,
+                                    incrementalCheckpoints));
         } else {
             throw new IllegalArgumentException("Unknown backend: " + stateBackend);
         }
@@ -169,11 +175,12 @@ public class StickyAllocationAndLocalRecoveryTestJob {
         @Override
         public void run(SourceContext<Long> sourceContext) throws Exception {
 
-            int numberOfParallelSubtasks = getRuntimeContext().getNumberOfParallelSubtasks();
-            int subtaskIdx = getRuntimeContext().getIndexOfThisSubtask();
+            int numberOfParallelSubtasks =
+                    getRuntimeContext().getTaskInfo().getNumberOfParallelSubtasks();
+            int subtaskIdx = getRuntimeContext().getTaskInfo().getIndexOfThisSubtask();
 
             // the source emits one final event and shuts down once we have reached max attempts.
-            if (getRuntimeContext().getAttemptNumber() > maxAttempts) {
+            if (getRuntimeContext().getTaskInfo().getAttemptNumber() > maxAttempts) {
                 synchronized (sourceContext.getCheckpointLock()) {
                     sourceContext.collect(Long.MAX_VALUE - subtaskIdx);
                 }
@@ -200,8 +207,7 @@ public class StickyAllocationAndLocalRecoveryTestJob {
 
         @Override
         public void snapshotState(FunctionSnapshotContext context) throws Exception {
-            sourceCurrentKeyState.clear();
-            sourceCurrentKeyState.add(currentKey);
+            sourceCurrentKeyState.update(Collections.singletonList(currentKey));
         }
 
         @Override
@@ -212,7 +218,7 @@ public class StickyAllocationAndLocalRecoveryTestJob {
             sourceCurrentKeyState =
                     context.getOperatorStateStore().getListState(currentKeyDescriptor);
 
-            currentKey = getRuntimeContext().getIndexOfThisSubtask();
+            currentKey = getRuntimeContext().getTaskInfo().getIndexOfThisSubtask();
             Iterable<Long> iterable = sourceCurrentKeyState.get();
             if (iterable != null) {
                 Iterator<Long> iterator = iterable.iterator();
@@ -310,7 +316,8 @@ public class StickyAllocationAndLocalRecoveryTestJob {
             StreamingRuntimeContext runtimeContext = (StreamingRuntimeContext) getRuntimeContext();
             String allocationID = runtimeContext.getAllocationIDAsString();
             // Pattern of the name: "Flat Map -> Sink: Unnamed (4/4)#0". Remove "#0" part:
-            String taskNameWithSubtasks = runtimeContext.getTaskNameWithSubtasks().split("#")[0];
+            String taskNameWithSubtasks =
+                    runtimeContext.getTaskInfo().getTaskNameWithSubtasks().split("#")[0];
 
             final int thisJvmPid = getJvmPid();
             final Set<Integer> killedJvmPids = new HashSet<>();
@@ -345,7 +352,7 @@ public class StickyAllocationAndLocalRecoveryTestJob {
                                             + "on JVM with PID %d to unexpected allocation %s on JVM with PID %d.\n"
                                             + "Complete information from before the crash: %s.",
                                     taskNameWithSubtasks,
-                                    runtimeContext.getAttemptNumber(),
+                                    runtimeContext.getTaskInfo().getAttemptNumber(),
                                     infoForThisTask.allocationId,
                                     infoForThisTask.jvmPid,
                                     allocationID,
@@ -367,8 +374,8 @@ public class StickyAllocationAndLocalRecoveryTestJob {
                             taskNameWithSubtasks,
                             allocationID);
 
-            schedulingAndFailureState.clear();
-            schedulingAndFailureState.add(currentSchedulingAndFailureInfo);
+            schedulingAndFailureState.update(
+                    Collections.singletonList(currentSchedulingAndFailureInfo));
         }
 
         @Override
@@ -383,9 +390,9 @@ public class StickyAllocationAndLocalRecoveryTestJob {
 
         private boolean shouldTaskFailForThisAttempt() {
             RuntimeContext runtimeContext = getRuntimeContext();
-            int numSubtasks = runtimeContext.getNumberOfParallelSubtasks();
-            int subtaskIdx = runtimeContext.getIndexOfThisSubtask();
-            int attempt = runtimeContext.getAttemptNumber();
+            int numSubtasks = runtimeContext.getTaskInfo().getNumberOfParallelSubtasks();
+            int subtaskIdx = runtimeContext.getTaskInfo().getIndexOfThisSubtask();
+            int attempt = runtimeContext.getTaskInfo().getAttemptNumber();
             return (attempt % numSubtasks) == subtaskIdx;
         }
 

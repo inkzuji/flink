@@ -20,57 +20,61 @@ package org.apache.flink.runtime.jobmaster.slotpool;
 
 import org.apache.flink.runtime.clusterframework.types.ResourceProfile;
 
-import org.junit.Rule;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.RegisterExtension;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 
-import static org.hamcrest.Matchers.is;
-import static org.junit.Assert.assertThat;
+import static org.apache.flink.core.testutils.FlinkAssertions.assertThatFuture;
+import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Tests for {@link PhysicalSlotProviderImpl} using {@link
  * DefaultLocationPreferenceSlotSelectionStrategy}.
  */
-public class PhysicalSlotProviderImplWithDefaultSlotSelectionStrategyTest {
+class PhysicalSlotProviderImplWithDefaultSlotSelectionStrategyTest {
 
-    @Rule
-    public final PhysicalSlotProviderResource physicalSlotProviderResource =
-            new PhysicalSlotProviderResource(
+    @RegisterExtension
+    private final PhysicalSlotProviderExtension physicalSlotProviderExtension =
+            new PhysicalSlotProviderExtension(
                     LocationPreferenceSlotSelectionStrategy.createDefault());
 
     @Test
-    public void testSlotAllocationFulfilledWithAvailableSlots()
+    void testSlotAllocationFulfilledWithAvailableSlots()
             throws InterruptedException, ExecutionException {
-        PhysicalSlotRequest request = physicalSlotProviderResource.createSimpleRequest();
-        physicalSlotProviderResource.registerSlotOffersFromNewTaskExecutor(ResourceProfile.ANY);
+        PhysicalSlotRequest request = physicalSlotProviderExtension.createSimpleRequest();
+        physicalSlotProviderExtension.registerSlotOffersFromNewTaskExecutor(ResourceProfile.ANY);
         CompletableFuture<PhysicalSlotRequest.Result> slotFuture =
-                physicalSlotProviderResource.allocateSlot(request);
+                physicalSlotProviderExtension.allocateSlot(request);
         PhysicalSlotRequest.Result result = slotFuture.get();
-        assertThat(result.getSlotRequestId(), is(request.getSlotRequestId()));
+        assertThat(result.getSlotRequestId()).isEqualTo(request.getSlotRequestId());
     }
 
     @Test
-    public void testSlotAllocationFulfilledWithNewSlots()
-            throws ExecutionException, InterruptedException {
+    void testSlotAllocationFulfilledWithNewSlots() throws ExecutionException, InterruptedException {
         final CompletableFuture<PhysicalSlotRequest.Result> slotFuture =
-                physicalSlotProviderResource.allocateSlot(
-                        physicalSlotProviderResource.createSimpleRequest());
-        assertThat(slotFuture.isDone(), is(false));
-        physicalSlotProviderResource.registerSlotOffersFromNewTaskExecutor(ResourceProfile.ANY);
+                physicalSlotProviderExtension.allocateSlot(
+                        physicalSlotProviderExtension.createSimpleRequest());
+        assertThatFuture(slotFuture).isNotDone();
+        physicalSlotProviderExtension.registerSlotOffersFromNewTaskExecutor(ResourceProfile.ANY);
         slotFuture.get();
     }
 
     @Test
-    public void testIndividualBatchSlotRequestTimeoutCheckIsDisabledOnAllocatingNewSlots()
+    void testIndividualBatchSlotRequestTimeoutCheckIsDisabledOnAllocatingNewSlots()
             throws Exception {
-        TestingSlotPoolImpl slotPool =
-                new SlotPoolBuilder(physicalSlotProviderResource.getMainThreadExecutor()).build();
-        assertThat(slotPool.isBatchSlotRequestTimeoutCheckEnabled(), is(true));
+        DeclarativeSlotPoolBridge slotPool =
+                new DeclarativeSlotPoolBridgeBuilder()
+                        .setMainThreadExecutor(
+                                physicalSlotProviderExtension.getMainThreadExecutor())
+                        .buildAndStart();
+        assertThat(slotPool.isBatchSlotRequestTimeoutCheckEnabled()).isTrue();
 
-        new PhysicalSlotProviderImpl(
-                LocationPreferenceSlotSelectionStrategy.createDefault(), slotPool);
-        assertThat(slotPool.isBatchSlotRequestTimeoutCheckEnabled(), is(false));
+        final PhysicalSlotProvider slotProvider =
+                new PhysicalSlotProviderImpl(
+                        LocationPreferenceSlotSelectionStrategy.createDefault(), slotPool);
+        slotProvider.disableBatchSlotRequestTimeoutCheck();
+        assertThat(slotPool.isBatchSlotRequestTimeoutCheckEnabled()).isFalse();
     }
 }

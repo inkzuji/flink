@@ -19,11 +19,10 @@
 package org.apache.flink.runtime.resourcemanager.slotmanager;
 
 import org.apache.flink.api.common.JobID;
-import org.apache.flink.api.common.time.Time;
 import org.apache.flink.runtime.clusterframework.types.AllocationID;
+import org.apache.flink.runtime.clusterframework.types.ResourceID;
 import org.apache.flink.runtime.clusterframework.types.ResourceProfile;
 import org.apache.flink.runtime.clusterframework.types.SlotID;
-import org.apache.flink.runtime.concurrent.FutureUtils;
 import org.apache.flink.runtime.instance.InstanceID;
 import org.apache.flink.runtime.messages.Acknowledge;
 import org.apache.flink.runtime.resourcemanager.ResourceManagerId;
@@ -32,12 +31,14 @@ import org.apache.flink.runtime.taskexecutor.SlotStatus;
 import org.apache.flink.runtime.taskexecutor.TaskExecutorGateway;
 import org.apache.flink.runtime.taskexecutor.exceptions.SlotOccupiedException;
 import org.apache.flink.util.Preconditions;
+import org.apache.flink.util.concurrent.FutureUtils;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.annotation.Nullable;
 
+import java.time.Duration;
 import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
@@ -50,7 +51,7 @@ public class DefaultSlotStatusSyncer implements SlotStatusSyncer {
 
     private final Set<AllocationID> pendingSlotAllocations = new HashSet<>();
     /** Timeout for slot requests to the task manager. */
-    private final Time taskManagerRequestTimeout;
+    private final Duration taskManagerRequestTimeout;
 
     @Nullable private TaskManagerTracker taskManagerTracker;
     @Nullable private ResourceTracker resourceTracker;
@@ -59,7 +60,7 @@ public class DefaultSlotStatusSyncer implements SlotStatusSyncer {
 
     private boolean started = false;
 
-    public DefaultSlotStatusSyncer(Time taskManagerRequestTimeout) {
+    public DefaultSlotStatusSyncer(Duration taskManagerRequestTimeout) {
         this.taskManagerRequestTimeout = Preconditions.checkNotNull(taskManagerRequestTimeout);
     }
 
@@ -106,6 +107,14 @@ public class DefaultSlotStatusSyncer implements SlotStatusSyncer {
                 "Could not find a registered task manager for instance id " + instanceId + '.');
         final TaskExecutorGateway gateway =
                 taskManager.get().getTaskExecutorConnection().getTaskExecutorGateway();
+        final ResourceID resourceId = taskManager.get().getTaskExecutorConnection().getResourceID();
+
+        LOG.info(
+                "Starting allocation of slot {} from {} for job {} with resource profile {}.",
+                allocationId,
+                resourceId,
+                jobId,
+                resourceProfile);
 
         taskManagerTracker.notifySlotStatus(
                 allocationId, jobId, instanceId, resourceProfile, SlotState.PENDING);
@@ -115,8 +124,7 @@ public class DefaultSlotStatusSyncer implements SlotStatusSyncer {
         // RPC call to the task manager
         CompletableFuture<Acknowledge> requestFuture =
                 gateway.requestSlot(
-                        SlotID.getDynamicSlotID(
-                                taskManager.get().getTaskExecutorConnection().getResourceID()),
+                        SlotID.getDynamicSlotID(resourceId),
                         jobId,
                         allocationId,
                         resourceProfile,
@@ -144,7 +152,7 @@ public class DefaultSlotStatusSyncer implements SlotStatusSyncer {
                                 LOG.debug(
                                         "The slot {} has been removed before. Ignore the future.",
                                         allocationId);
-                                requestFuture.complete(null);
+                                returnedFuture.complete(null);
                                 return null;
                             }
                             if (acknowledge != null) {
@@ -190,7 +198,7 @@ public class DefaultSlotStatusSyncer implements SlotStatusSyncer {
     public void freeSlot(AllocationID allocationId) {
         Preconditions.checkNotNull(allocationId);
         checkStarted();
-        LOG.debug("Freeing slot {}.", allocationId);
+        LOG.info("Freeing slot {}.", allocationId);
 
         final Optional<TaskManagerSlotInformation> slotOptional =
                 taskManagerTracker.getAllocatedOrPendingSlot(allocationId);
@@ -242,6 +250,7 @@ public class DefaultSlotStatusSyncer implements SlotStatusSyncer {
             // the next slot report or the acknowledgement of the allocation request.
             if (!reportedAllocationIds.contains(slot.getAllocationId())
                     && slot.getState() == SlotState.ALLOCATED) {
+                LOG.info("Freeing slot {} by slot report.", slot.getAllocationId());
                 taskManagerTracker.notifySlotStatus(
                         slot.getAllocationId(),
                         slot.getJobId(),
@@ -296,6 +305,18 @@ public class DefaultSlotStatusSyncer implements SlotStatusSyncer {
                     SlotState.ALLOCATED);
             resourceTracker.notifyAcquiredResource(jobId, resourceProfile);
             return false;
+        }
+    }
+
+    @Override
+    public void freeInactiveSlots(JobID jobId) {
+        checkStarted();
+        for (TaskManagerInfo taskManagerInfo :
+                taskManagerTracker.getTaskManagersWithAllocatedSlotsForJob(jobId)) {
+            taskManagerInfo
+                    .getTaskExecutorConnection()
+                    .getTaskExecutorGateway()
+                    .freeInactiveSlots(jobId, taskManagerRequestTimeout);
         }
     }
 

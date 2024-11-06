@@ -49,8 +49,6 @@ and [savepoints]({{< ref "docs/ops/state/savepoints" >}}).
 Knowledge about the state also allows for rescaling Flink applications, meaning
 that Flink takes care of redistributing state across parallel instances.
 
-[Queryable state]({{< ref "docs/dev/datastream/fault-tolerance/queryable_state" >}}) allows you to access state from outside of Flink during runtime.
-
 When working with state, it might also be useful to read about [Flink's state
 backends]({{< ref "docs/ops/state/state_backends" >}}). Flink
 provides different state backends that specify how and where state is stored.
@@ -240,7 +238,7 @@ If state was snapshotted incrementally, the operators start with the state of
 the latest full snapshot and then apply a series of incremental snapshot
 updates to that state.
 
-See [Restart Strategies]({{< ref "docs/dev/execution/task_failure_recovery" >}}#restart-strategies) for more information.
+See [Restart Strategies]({{< ref "docs/ops/state/task_failure_recovery" >}}#restart-strategies) for more information.
 
 ### Unaligned Checkpointing
 
@@ -311,6 +309,8 @@ mechanism for this.
 Savepoints are similar to checkpoints except that they are
 **triggered by the user** and **don't automatically expire** when newer
 checkpoints are completed.
+为了正确使用savepoints，了解 [checkpoints]({{< ref "docs/ops/state/checkpoints" >}}) 与 [savepoints]({{< ref "docs/ops/state/savepoints" >}})
+之间的区别非常重要，[checkpoints 与 savepoints]({{< ref "docs/ops/state/checkpoints_vs_savepoints" >}}) 中对此进行了描述。
 
 {{< top >}}
 
@@ -343,23 +343,19 @@ give *exactly once* guarantees even in *at least once* mode.
 
 ## State and Fault Tolerance in Batch Programs
 
-Flink executes [batch programs]({{< ref "docs/dev/dataset/overview" >}}) as a special case of
-streaming programs, where the streams are bounded (finite number of elements).
-A *DataSet* is treated internally as a stream of data. The concepts above thus
-apply to batch programs in the same way as well as they apply to streaming
+Flink executes batch programs as a special case of
+streaming programs in BATCH [ExecutionMode]({{< ref "docs/dev/datastream/execution/execution_configuration" >}})
+, where the streams are bounded (finite number of elements).
+The concepts above thus apply to batch programs in the same way as well as they apply to streaming
 programs, with minor exceptions:
 
-  - [Fault tolerance for batch programs]({{< ref "docs/dev/execution/task_failure_recovery" >}})
+  - [Fault tolerance for batch programs]({{< ref "docs/ops/state/task_failure_recovery" >}})
     does not use checkpointing.  Recovery happens by fully replaying the
     streams.  That is possible, because inputs are bounded. This pushes the
     cost more towards the recovery, but makes the regular processing cheaper,
     because it avoids checkpoints.
 
-  - Stateful operations in the DataSet API use simplified in-memory/out-of-core
+  - State backend in batch execution mode use simplified in-memory/out-of-core
     data structures, rather than key/value indexes.
-
-  - The DataSet API introduces special synchronized (superstep-based)
-    iterations, which are only possible on bounded streams. For details, check
-    out the [iteration docs]({{< ref "docs/dev/dataset/iterations" >}}).
 
 {{< top >}}

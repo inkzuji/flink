@@ -18,37 +18,85 @@
 
 package org.apache.flink.table.operations;
 
-import java.util.Collections;
-import java.util.LinkedHashMap;
-import java.util.Map;
+import org.apache.flink.annotation.Internal;
+import org.apache.flink.table.api.TableException;
+import org.apache.flink.table.api.ValidationException;
+import org.apache.flink.table.api.internal.TableResultImpl;
+import org.apache.flink.table.api.internal.TableResultInternal;
+import org.apache.flink.table.factories.FactoryUtil;
+import org.apache.flink.table.module.Module;
 
+import java.util.Collections;
+import java.util.Map;
+import java.util.stream.Collectors;
+
+import static org.apache.flink.table.utils.EncodingUtils.escapeIdentifier;
+import static org.apache.flink.table.utils.EncodingUtils.escapeSingleQuotes;
 import static org.apache.flink.util.Preconditions.checkNotNull;
 
 /** Operation to describe a LOAD MODULE statement. */
-public class LoadModuleOperation implements Operation {
+@Internal
+public class LoadModuleOperation implements Operation, ExecutableOperation {
+
     private final String moduleName;
+    private final Map<String, String> options;
 
-    private final Map<String, String> properties;
-
-    public LoadModuleOperation(String moduleName, Map<String, String> properties) {
+    public LoadModuleOperation(String moduleName, Map<String, String> options) {
         this.moduleName = checkNotNull(moduleName);
-        this.properties = checkNotNull(properties);
+        this.options = checkNotNull(options);
     }
 
     public String getModuleName() {
         return moduleName;
     }
 
-    public Map<String, String> getProperties() {
-        return Collections.unmodifiableMap(properties);
+    public Map<String, String> getOptions() {
+        return Collections.unmodifiableMap(options);
     }
 
     @Override
     public String asSummaryString() {
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("moduleName", moduleName);
-        params.put("properties", properties);
-        return OperationUtils.formatWithChildren(
-                "LOAD MODULE", params, Collections.emptyList(), Operation::asSummaryString);
+        final StringBuilder sb = new StringBuilder();
+        sb.append("LOAD MODULE ");
+        sb.append(escapeIdentifier(moduleName));
+        if (!options.isEmpty()) {
+            sb.append(" WITH (");
+
+            sb.append(
+                    options.entrySet().stream()
+                            .map(
+                                    entry ->
+                                            String.format(
+                                                    "'%s' = '%s'",
+                                                    escapeSingleQuotes(entry.getKey()),
+                                                    escapeSingleQuotes(entry.getValue())))
+                            .collect(Collectors.joining(", ")));
+
+            sb.append(")");
+        }
+
+        return sb.toString();
+    }
+
+    @Override
+    public TableResultInternal execute(Context ctx) {
+        try {
+            final Module module =
+                    FactoryUtil.createModule(
+                            getModuleName(),
+                            getOptions(),
+                            ctx.getTableConfig(),
+                            ctx.getResourceManager().getUserClassLoader());
+            ctx.getModuleManager().loadModule(getModuleName(), module);
+            return TableResultImpl.TABLE_RESULT_OK;
+        } catch (ValidationException e) {
+            throw new ValidationException(
+                    String.format("Could not execute %s. %s", asSummaryString(), e.getMessage()),
+                    e);
+        } catch (Exception e) {
+            throw new TableException(
+                    String.format("Could not execute %s. %s", asSummaryString(), e.getMessage()),
+                    e);
+        }
     }
 }

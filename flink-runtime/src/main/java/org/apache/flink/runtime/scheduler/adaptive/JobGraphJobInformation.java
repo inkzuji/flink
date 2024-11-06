@@ -21,13 +21,15 @@ import org.apache.flink.api.common.JobID;
 import org.apache.flink.runtime.jobgraph.JobGraph;
 import org.apache.flink.runtime.jobgraph.JobVertex;
 import org.apache.flink.runtime.jobgraph.JobVertexID;
+import org.apache.flink.runtime.jobgraph.tasks.JobCheckpointingSettings;
 import org.apache.flink.runtime.jobmanager.scheduler.SlotSharingGroup;
+import org.apache.flink.runtime.scheduler.VertexParallelismInformation;
+import org.apache.flink.runtime.scheduler.VertexParallelismStore;
 import org.apache.flink.runtime.scheduler.adaptive.allocator.JobInformation;
 import org.apache.flink.util.InstantiationUtil;
 
-import org.apache.flink.shaded.guava18.com.google.common.collect.Iterables;
+import org.apache.flink.shaded.guava32.com.google.common.collect.Iterables;
 
-import java.io.IOException;
 import java.util.Collection;
 
 /** {@link JobInformation} created from a {@link JobGraph}. */
@@ -36,11 +38,14 @@ public class JobGraphJobInformation implements JobInformation {
     private final JobGraph jobGraph;
     private final JobID jobID;
     private final String name;
+    private final VertexParallelismStore vertexParallelismStore;
 
-    public JobGraphJobInformation(JobGraph jobGraph) {
+    public JobGraphJobInformation(
+            JobGraph jobGraph, VertexParallelismStore vertexParallelismStore) {
         this.jobGraph = jobGraph;
         this.jobID = jobGraph.getJobID();
         this.name = jobGraph.getName();
+        this.vertexParallelismStore = vertexParallelismStore;
     }
 
     @Override
@@ -50,7 +55,9 @@ public class JobGraphJobInformation implements JobInformation {
 
     @Override
     public JobInformation.VertexInformation getVertexInformation(JobVertexID jobVertexId) {
-        return new JobVertexInformation(jobGraph.findVertexByID(jobVertexId));
+        return new JobVertexInformation(
+                jobGraph.findVertexByID(jobVertexId),
+                vertexParallelismStore.getParallelismInfo(jobVertexId));
     }
 
     public JobID getJobID() {
@@ -61,26 +68,35 @@ public class JobGraphJobInformation implements JobInformation {
         return name;
     }
 
-    public Iterable<JobInformation.VertexInformation> getVertices() {
-        return jobGraphVerticesToVertexInformation(jobGraph.getVertices());
+    public JobCheckpointingSettings getCheckpointingSettings() {
+        return jobGraph.getCheckpointingSettings();
     }
 
-    public static Iterable<JobInformation.VertexInformation> jobGraphVerticesToVertexInformation(
-            Iterable<JobVertex> verticesIterable) {
-        return Iterables.transform(verticesIterable, JobVertexInformation::new);
+    @Override
+    public Iterable<JobInformation.VertexInformation> getVertices() {
+        return Iterables.transform(
+                jobGraph.getVertices(), (vertex) -> getVertexInformation(vertex.getID()));
     }
 
     /** Returns a copy of a jobGraph that can be mutated. */
-    public JobGraph copyJobGraph() throws IOException, ClassNotFoundException {
-        return InstantiationUtil.clone(jobGraph);
+    public JobGraph copyJobGraph() {
+        return InstantiationUtil.cloneUnchecked(jobGraph);
+    }
+
+    public VertexParallelismStore getVertexParallelismStore() {
+        return vertexParallelismStore;
     }
 
     private static final class JobVertexInformation implements JobInformation.VertexInformation {
 
         private final JobVertex jobVertex;
 
-        private JobVertexInformation(JobVertex jobVertex) {
+        private final VertexParallelismInformation parallelismInfo;
+
+        private JobVertexInformation(
+                JobVertex jobVertex, VertexParallelismInformation parallelismInfo) {
             this.jobVertex = jobVertex;
+            this.parallelismInfo = parallelismInfo;
         }
 
         @Override
@@ -89,8 +105,18 @@ public class JobGraphJobInformation implements JobInformation {
         }
 
         @Override
+        public int getMinParallelism() {
+            return parallelismInfo.getMinParallelism();
+        }
+
+        @Override
         public int getParallelism() {
-            return jobVertex.getParallelism();
+            return parallelismInfo.getParallelism();
+        }
+
+        @Override
+        public int getMaxParallelism() {
+            return parallelismInfo.getMaxParallelism();
         }
 
         @Override
